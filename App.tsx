@@ -56,6 +56,43 @@ const App: React.FC = () => {
 
   useEffect(() => {
     fetchDatabaseInventory();
+
+    // 啟動 Supabase Realtime 即時訂閱
+    const subscription = supabase
+      .channel('public:sample_inventory')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'sample_inventory' },
+        (payload) => {
+          console.log('收到資料庫即時變更：', payload);
+          
+          if (payload.eventType === 'UPDATE' || payload.eventType === 'INSERT') {
+            // 單筆增量更新 dbInventory，避免重新請求整個資料表
+            const item = payload.new as any;
+            const normKey = normalizeKey(item.part_number);
+            setDbInventory(prev => ({
+              ...prev,
+              [normKey]: {
+                p2: item.p2_quantity || 0,
+                p3: item.p3_quantity || 0
+              }
+            }));
+          } else if (payload.eventType === 'DELETE') {
+             const item = payload.old as any;
+             const normKey = normalizeKey(item.part_number);
+             setDbInventory(prev => {
+                const next = { ...prev };
+                delete next[normKey];
+                return next;
+             });
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(subscription);
+    };
   }, []);
 
   useEffect(() => {
