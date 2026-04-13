@@ -103,7 +103,7 @@ export const InventoryTooltip: React.FC<InventoryTooltipProps> = ({ inventory, d
         className={`absolute left-0 right-0 h-10 bg-transparent ${position === 'top' ? 'top-full' : 'bottom-full'}`}
       ></div>
 
-      <div className={`bg-white border-4 p-5 rounded-3xl shadow-[10px_10px_0px_0px_rgba(0,0,0,1)] relative min-w-[280px] max-w-[320px] animate-in fade-in zoom-in duration-200 
+      <div className={`bg-white border-4 p-4 rounded-3xl shadow-[8px_8px_0px_0px_rgba(0,0,0,1)] relative min-w-[260px] max-w-[300px] animate-in fade-in zoom-in duration-200 
         ${isConfirmed ? 'border-green-600' : 'border-black'}`}
       >
         {/* 已確認標籤 */}
@@ -141,8 +141,8 @@ export const InventoryTooltip: React.FC<InventoryTooltipProps> = ({ inventory, d
           )}
         </div>
         
-        <div className={`text-6xl font-black italic tracking-tighter mb-4 drop-shadow-[3px_3px_0px_white] ${isConfirmed ? 'text-green-600' : 'text-blue-600'}`}>
-           {inventoryValue !== undefined ? inventoryValue : (hasDBValue ? <span className="text-gray-300">--</span> : <span className="text-red-500 text-base font-normal not-italic">查無資料</span>)}
+        <div className={`text-5xl font-black italic tracking-tighter mb-2 drop-shadow-[2px_2px_0px_white] ${isConfirmed ? 'text-green-600' : 'text-blue-600'}`}>
+           {inventoryValue !== undefined ? inventoryValue : (hasDBValue ? "" : <span className="text-red-500 text-sm font-normal not-italic">查無資料</span>)}
         </div>
 
         {/* 資料庫庫存資訊 */}
@@ -165,9 +165,9 @@ export const InventoryTooltip: React.FC<InventoryTooltipProps> = ({ inventory, d
         )}
 
         {originalRemarks && (
-          <div className="mb-6 p-4 bg-gray-50 border-2 border-black rounded-2xl text-left shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]">
-            <label className="text-[10px] font-black uppercase text-gray-500 block mb-1 tracking-wider">原始備註</label>
-            <p className="text-sm font-bold text-gray-800 leading-relaxed">{originalRemarks}</p>
+          <div className="mb-4 p-3 bg-gray-50 border-2 border-black rounded-2xl text-left">
+            <label className="text-[9px] font-black uppercase text-gray-400 block mb-1">原始備註</label>
+            <p className="text-xs font-bold text-gray-700">{originalRemarks}</p>
           </div>
         )}
 
@@ -189,13 +189,12 @@ export const InventoryTooltip: React.FC<InventoryTooltipProps> = ({ inventory, d
           </div>
         </div>
 
-        <div 
-          role="button"
-          tabIndex={0}
-          className={`flex items-center gap-3 p-4 rounded-2xl border-4 transition-all cursor-pointer select-none active:scale-90
+        <button 
+          type="button"
+          className={`w-full flex items-center gap-3 p-3 rounded-2xl border-4 transition-all cursor-pointer select-none active:scale-95
             ${isConfirmed 
               ? 'bg-green-600 border-black text-white shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]' 
-              : 'bg-white border-black text-black hover:bg-yellow-100 hover:shadow-[6px_6px_0px_0px_rgba(0,0,0,1)]'
+              : 'bg-white border-black text-black hover:bg-yellow-100'
             }`}
           onClick={(e) => {
             e.preventDefault();
@@ -203,18 +202,18 @@ export const InventoryTooltip: React.FC<InventoryTooltipProps> = ({ inventory, d
             onToggleConfirm?.();
           }}
         >
-          <div className={`w-10 h-10 rounded-xl border-4 flex items-center justify-center transition-all bg-white
-            ${isConfirmed ? 'border-black text-green-600' : 'border-black text-transparent group-hover:border-green-600'}
+          <div className={`w-8 h-8 rounded-xl border-2 flex items-center justify-center transition-all bg-white
+            ${isConfirmed ? 'border-black text-green-600' : 'border-black text-transparent'}
           `}>
-            <i className={`fas ${isConfirmed ? 'fa-check-double' : 'fa-check'} text-xl`}></i>
+            <i className={`fas ${isConfirmed ? 'fa-check-double text-xs' : 'fa-check text-xs'}`}></i>
           </div>
-          <div className="flex flex-col items-start">
-            <span className="font-black text-lg uppercase leading-none">{isConfirmed ? '核對正確' : '數量確認'}</span>
-            <span className={`text-[10px] font-bold ${isConfirmed ? 'text-green-100' : 'text-gray-400'}`}>
-              {isConfirmed ? '點擊取消標記' : '點擊標記正確'}
+          <div className="flex flex-col items-start translate-y-[-1px]">
+            <span className="font-black text-base uppercase leading-none">{isConfirmed ? '核對正確' : '數量確認'}</span>
+            <span className={`text-[9px] font-bold ${isConfirmed ? 'text-green-100' : 'text-gray-400'}`}>
+              {isConfirmed ? '點擊取消' : '點擊標記'}
             </span>
           </div>
-        </div>
+        </button>
       </div>
     </div>
   );
