@@ -28,7 +28,6 @@ const App: React.FC = () => {
   const [dbInventory, setDbInventory] = useState<Record<string, { p2: number, p3: number }>>({});
   const [isSyncing, setIsSyncing] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const inventoryInputRef = useRef<HTMLInputElement>(null);
 
   const fetchDatabaseInventory = async () => {
     setIsSyncing(true);
@@ -41,7 +40,8 @@ const App: React.FC = () => {
       
       const mapped: Record<string, { p2: number, p3: number }> = {};
       data.forEach(item => {
-        mapped[item.part_number] = {
+        const normKey = normalizeKey(item.part_number);
+        mapped[normKey] = {
           p2: item.p2_quantity || 0,
           p3: item.p3_quantity || 0
         };
@@ -109,25 +109,38 @@ const App: React.FC = () => {
     }
   }, [inventoryData]);
 
+  // 輔助函式：在 inventoryData 中尋找匹配的原始 Key (不分大小寫/空白)
+  const findInventoryPnKey = (pn: string) => {
+    const norm = normalizeKey(pn);
+    return Object.keys(inventoryData).find(k => normalizeKey(k) === norm);
+  };
+
   const updateInventoryNewQuantity = (partNumber: string, location: string, newQuantity: string) => {
     if (!partNumber || !location) return;
     
     setInventoryData(prev => {
       const next = JSON.parse(JSON.stringify(prev));
-      const pnKey = Object.keys(next).find(k => k.toLowerCase().trim() === partNumber.toLowerCase().trim());
-      if (!pnKey) return prev;
+      const normPN = normalizeKey(partNumber);
+      let pnKey = Object.keys(next).find(k => normalizeKey(k) === normPN);
+
+      // 如果本地還沒有這個料號的紀錄，則新增一個 (基於資料庫連動)
+      if (!pnKey) {
+        pnKey = partNumber;
+        next[pnKey] = {};
+      }
 
       const locKey = Object.keys(next[pnKey]).find(l => {
         const k1 = l.toLowerCase().trim();
         const k2 = location.toLowerCase().trim();
         return k1.includes(k2) || k2.includes(k1);
-      });
+      }) || location; // 若找不到匹配廠區，直接用傳入的名稱
 
-      if (locKey) {
-        next[pnKey][locKey].newQuantity = newQuantity;
-        return next;
+      if (!next[pnKey][locKey]) {
+        next[pnKey][locKey] = { quantity: 0, confirmed: false };
       }
-      return prev;
+
+      next[pnKey][locKey].newQuantity = newQuantity;
+      return next;
     });
   };
 
@@ -136,50 +149,56 @@ const App: React.FC = () => {
     
     setInventoryData(prev => {
       const next = JSON.parse(JSON.stringify(prev));
-      const pnKey = Object.keys(next).find(k => k.toLowerCase().trim() === partNumber.toLowerCase().trim());
-      if (!pnKey) return prev;
+      const normPN = normalizeKey(partNumber);
+      let pnKey = Object.keys(next).find(k => normalizeKey(k) === normPN);
+
+      if (!pnKey) {
+        pnKey = partNumber;
+        next[pnKey] = {};
+      }
 
       const locKey = Object.keys(next[pnKey]).find(l => {
         const k1 = l.toLowerCase().trim();
         const k2 = location.toLowerCase().trim();
         return k1.includes(k2) || k2.includes(k1);
+      }) || location;
+
+      if (!next[pnKey][locKey]) {
+        next[pnKey][locKey] = { quantity: 0, confirmed: false };
+      }
+
+      const newStatus = !next[pnKey][locKey].confirmed;
+      next[pnKey][locKey].confirmed = newStatus;
+
+      // 同步回填到表格
+      setPages(currentPages => {
+        return currentPages.map(p => {
+          if (p.id !== activePageId) return p;
+          return {
+            ...p,
+            tables: p.tables.map(table => {
+              const confirmColIdx = table.columns.findIndex(c => c.trim() === '數量確認');
+              if (confirmColIdx === -1) return table;
+
+              const newRows = table.rows.map(row => {
+                const hasPartNumber = row.some(cell => 
+                  normalizeKey(cell) === normPN
+                );
+                if (hasPartNumber) {
+                  const newRow = [...row];
+                  newRow[confirmColIdx] = newStatus ? 'OK' : '';
+                  return newRow;
+                }
+                return row;
+              });
+
+              return { ...table, rows: newRows };
+            })
+          };
+        });
       });
 
-      if (locKey) {
-        const newStatus = !next[pnKey][locKey].confirmed;
-        next[pnKey][locKey].confirmed = newStatus;
-
-        // 同步回填到表格
-        setPages(currentPages => {
-          return currentPages.map(p => {
-            if (p.id !== activePageId) return p;
-            return {
-              ...p,
-              tables: p.tables.map(table => {
-                const confirmColIdx = table.columns.findIndex(c => c.trim() === '數量確認');
-                if (confirmColIdx === -1) return table;
-
-                const newRows = table.rows.map(row => {
-                  const hasPartNumber = row.some(cell => 
-                    cell.toString().toLowerCase().includes(partNumber.toLowerCase())
-                  );
-                  if (hasPartNumber) {
-                    const newRow = [...row];
-                    newRow[confirmColIdx] = newStatus ? 'OK' : '';
-                    return newRow;
-                  }
-                  return row;
-                });
-
-                return { ...table, rows: newRows };
-              })
-            };
-          });
-        });
-
-        return next;
-      }
-      return prev;
+      return next;
     });
   };
 
@@ -317,214 +336,7 @@ const App: React.FC = () => {
     ));
   };
 
-  const handleInventoryImportClick = () => {
-    if (!isEditMode) return;
-    inventoryInputRef.current?.click();
-  };
-
-  const handleInventoryFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-
-    const processJsonData = (jsonData: any[]) => {
-      if (jsonData.length === 0) return;
-      
-      setInventoryData(prev => {
-        const newInventory: InventoryData = JSON.parse(JSON.stringify(prev)); 
-        
-        // 匯入新表時，先清空所有舊的盤點與備註內容
-        Object.keys(newInventory).forEach(pn => {
-          Object.keys(newInventory[pn]).forEach(loc => {
-            newInventory[pn][loc].newQuantity = '';
-            newInventory[pn][loc].remarks = '';
-          });
-        });
-        
-        // 1. 從現有表格抓取最新 metadata 對照表 (Scraper)
-        const tableMetadata: Record<string, { name: string, category: string }> = {};
-        pages.forEach(page => {
-          page.tables.forEach(table => {
-            const findColIdx = (targets: string[]) => table.columns.findIndex(c => {
-              if (!c) return false;
-              const cleanCol = c.toString().replace(/[\s\u3000]/g, '').toLowerCase();
-              return targets.some(t => cleanCol.includes(t.toLowerCase()));
-            });
-
-            const pnIdx = findColIdx(['料號', 'partno', 'pn', '品號', '編號', '物料編號', 'itemno']);
-            const nameIdx = findColIdx(['品名', '產品名稱', '料號名稱', 'itemname', 'description', '名稱', '規格', '物料名稱']);
-            const catIdx = findColIdx(['產品類別', '類別', 'category', 'type', '分類', '產品種類', '物料類別']);
-
-            if (pnIdx !== -1) {
-              table.rows.forEach(row => {
-                const rawPn = (row[pnIdx] || '').toString();
-                if (!rawPn) return;
-                const pns = rawPn.split(/[\s,\u3000;\n]+/).map(p => p.trim()).filter(p => p.length > 0);
-                pns.forEach(pn => {
-                  const normPn = normalizeKey(pn);
-                  if (!tableMetadata[normPn]) tableMetadata[normPn] = { name: '', category: '' };
-                  if (nameIdx !== -1 && row[nameIdx] && !tableMetadata[normPn].name) 
-                    tableMetadata[normPn].name = row[nameIdx].toString().trim();
-                  if (catIdx !== -1 && row[catIdx] && !tableMetadata[normPn].category) 
-                    tableMetadata[normPn].category = row[catIdx].toString().trim();
-                });
-              });
-            }
-          });
-        });
-
-        // 2. 處理匯入資料 (支援標準格式與交叉表)
-        jsonData.forEach(row => {
-          const cleanRow: Record<string, any> = {};
-          const originalKeys: string[] = [];
-          for (const k in row) {
-            const cleanK = k.toString().replace(/[\s\u3000]/g, '').toLowerCase();
-            cleanRow[cleanK] = row[k];
-            originalKeys.push(k);
-          }
-
-          const findExcelKey = (targets: string[]) => Object.keys(cleanRow).find(k => targets.some(t => k.includes(t.toLowerCase())));
-
-          const partNumberKey = findExcelKey(['料號', 'partno', 'pn', '品號', '編號', '物料編號', 'itemno']) || Object.keys(cleanRow)[0];
-          const productNameKey = findExcelKey(['品名', '產品名稱', '料號名稱', 'itemname', 'description', '名稱', '規格', '物料名稱']);
-          const categoryKey = findExcelKey(['產品類別', '類別', 'category', 'type', '分類', '產品種類', '物料類別']);
-          const locationKey = findExcelKey(['產品位置', '位置', 'location', '儲位', '存放位置']);
-          const quantityKey = findExcelKey(['庫存數量', '數量', 'qty', 'quantity', '庫存']);
-          const confirmKey = findExcelKey(['數量確認', '核對', '確認', 'check', 'status']);
-          const newQuantityKey = findExcelKey(['新數量', 'new_qty', 'new_quantity']);
-          const remarksKey = findExcelKey(['備註', 'remarks', 'note', '備註欄', '其他']);
-          
-          const rawPN = String(cleanRow[partNumberKey || ''] || '').trim();
-          if (!rawPN) return;
-
-          if (!newInventory[rawPN]) newInventory[rawPN] = {};
-
-          const normPN = normalizeKey(rawPN);
-          // 彙整 metadata (優先序：Excel > 當前表格 > 舊庫存)
-          const productName = (productNameKey ? String(cleanRow[productNameKey]).trim() : '') 
-                            || tableMetadata[normPN]?.name 
-                            || (newInventory[rawPN] ? Object.values(newInventory[rawPN])[0]?.name : '');
-          
-          const category = (categoryKey ? String(cleanRow[categoryKey]).trim() : '') 
-                         || tableMetadata[normPN]?.category 
-                         || (newInventory[rawPN] ? Object.values(newInventory[rawPN])[0]?.category : '');
-          
-          const importedNewQuantity = newQuantityKey ? String(cleanRow[newQuantityKey] || '').trim() : '';
-          const importedRemarks = remarksKey ? String(cleanRow[remarksKey] || '').trim() : '';
-
-          const hasStandardLocation = locationKey && cleanRow[locationKey];
-          if (hasStandardLocation) {
-            // 標準格式： 料號, 位置, 數量
-            const location = String(cleanRow[locationKey]).trim();
-            const quantity = quantityKey ? cleanRow[quantityKey] : '';
-            const confirmed = confirmKey ? (['V', 'OK', 'TRUE'].includes(String(cleanRow[confirmKey]).toUpperCase().trim())) : false;
-            newInventory[rawPN][location] = { 
-              quantity, 
-              confirmed, 
-              name: productName, 
-              category, 
-              newQuantity: importedNewQuantity,
-              remarks: importedRemarks
-            };
-          } else {
-            // 交叉表格式：料號, 廠區A, 廠區B...
-            originalKeys.forEach(origKey => {
-              const cleanK = origKey.replace(/[\s\u3000]/g, '').toLowerCase();
-              const isReserved = [partNumberKey, productNameKey, categoryKey, locationKey, quantityKey, confirmKey, '數量確認', newQuantityKey, remarksKey].includes(cleanK);
-              if (!isReserved) {
-                const val = row[origKey];
-                if (val !== undefined && val !== null && val !== "") {
-                  newInventory[rawPN][origKey] = { 
-                    quantity: val, 
-                    confirmed: false,
-                    name: productName,
-                    category,
-                    newQuantity: importedNewQuantity,
-                    remarks: importedRemarks
-                  };
-                }
-              }
-            });
-          }
-
-          // 核心補完：確保該料號的所有位置 metadata 同步
-          if (newInventory[rawPN]) {
-            Object.keys(newInventory[rawPN]).forEach(l => {
-              if (productName && !newInventory[rawPN][l].name) newInventory[rawPN][l].name = productName;
-              if (category && !newInventory[rawPN][l].category) newInventory[rawPN][l].category = category;
-            });
-          }
-        });
-        
-        return newInventory;
-      });
-    };
-
-    const isCsv = file.name.toLowerCase().endsWith('.csv');
-    const reader = new FileReader();
-
-    reader.onload = (e) => {
-      const result = e.target?.result as ArrayBuffer;
-      if (!result) return;
-
-      if (isCsv) {
-        let text = '';
-        try {
-          const utf8Decoder = new TextDecoder('utf-8', { fatal: true });
-          text = utf8Decoder.decode(result);
-        } catch (err) {
-          const big5Decoder = new TextDecoder('big5');
-          text = big5Decoder.decode(result);
-        }
-
-        const parseCSVToRows = (csvText: string): string[][] => {
-          const rows: string[][] = [];
-          let currentRow: string[] = [];
-          let currentCell = '';
-          let inQuotes = false;
-          for (let i = 0; i < csvText.length; i++) {
-            const char = csvText[i];
-            const nextChar = csvText[i + 1];
-            if (inQuotes) {
-              if (char === '"' && nextChar === '"') { currentCell += '"'; i++; }
-              else if (char === '"') { inQuotes = false; }
-              else { currentCell += char; }
-            } else {
-              if (char === '"') { inQuotes = true; }
-              else if (char === ',') { currentRow.push(currentCell); currentCell = ''; }
-              else if (char === '\n' || (char === '\r' && nextChar === '\n')) {
-                if (char === '\r') i++;
-                currentRow.push(currentCell);
-                rows.push(currentRow);
-                currentRow = [];
-                currentCell = '';
-              } else if (char !== '\r') { currentCell += char; }
-            }
-          }
-          if (currentCell !== '' || currentRow.length > 0) { currentRow.push(currentCell); rows.push(currentRow); }
-          return rows;
-        };
-
-        const rows = parseCSVToRows(text);
-        if (rows.length < 1) return;
-        const headers = rows[0];
-        const jsonData = rows.slice(1).map(row => {
-          const obj: any = {};
-          headers.forEach((h, i) => { if (h !== undefined) obj[h.trim()] = row[i]; });
-          return obj;
-        });
-        processJsonData(jsonData);
-      } else {
-        const data = new Uint8Array(result);
-        const workbook = xlsx.read(data, { type: 'array' });
-        const worksheet = workbook.Sheets[workbook.SheetNames[0]];
-        const jsonData = xlsx.utils.sheet_to_json(worksheet, { defval: "" }) as any[];
-        processJsonData(jsonData);
-      }
-      if (inventoryInputRef.current) inventoryInputRef.current.value = '';
-    };
-
-    reader.readAsArrayBuffer(file);
-  };
+  // 移除本地庫存匯入邏輯
 
   const handleImportClick = () => {
     if (!isEditMode) return;
@@ -801,7 +613,6 @@ const App: React.FC = () => {
   return (
     <div className="min-h-screen pb-32 bg-[#fcfcfc] text-black font-medium selection:bg-yellow-200">
       <input type="file" ref={fileInputRef} onChange={handleFileChange} accept=".csv" className="hidden" />
-      <input type="file" ref={inventoryInputRef} onChange={handleInventoryFileChange} accept=".xlsx, .xls, .csv" className="hidden" />
       
       <header className="sticky top-0 z-[100] bg-white border-b-4 border-black px-8 py-5 flex flex-col md:flex-row items-center justify-between shadow-sm gap-6">
         <div className="flex items-center gap-4">
@@ -851,14 +662,6 @@ const App: React.FC = () => {
           <div className="flex items-center gap-2">
             {isEditMode && (
               <>
-                <div className="flex bg-black/5 rounded-xl p-1 gap-1 border border-black/10">
-                  <button 
-                    onClick={handleInventoryImportClick} 
-                    className="bg-white hover:bg-yellow-50 text-black px-4 py-2 rounded-lg font-black text-sm border-2 border-black flex items-center gap-2 transition-all active:translate-y-0.5"
-                  >
-                    <i className="fas fa-file-excel text-green-600"></i>
-                    更新數量表
-                  </button>
                   {inventoryData && Object.keys(inventoryData).length > 0 && (
                       <button 
                         onClick={exportInventory} 
@@ -868,7 +671,6 @@ const App: React.FC = () => {
                         <i className="fas fa-file-export"></i>
                       </button>
                     )}
-                  </div>
                 <button onClick={handleImportClick} className="px-4 py-2.5 rounded-lg font-black border-2 border-black bg-white hover:bg-gray-100 transition-all active:translate-y-0.5 text-sm">
                   <i className="fas fa-file-import mr-2"></i>匯入 CSV
                 </button>

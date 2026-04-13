@@ -31,8 +31,11 @@ export const InventoryTooltip: React.FC<InventoryTooltipProps> = ({ inventory, d
   const originalRemarks = inventoryData?.remarks || '';
 
   // 比對邏輯
-  const localQty = parseFloat(inventoryValue?.toString() || '0');
-  const isMatch = dbValue ? (
+  const localQty = inventoryValue !== undefined ? parseFloat(inventoryValue.toString()) : NaN;
+  
+  // 核心邏輯：是否有資料庫對應值
+  const hasDBValue = !!dbValue;
+  const isMatch = hasDBValue ? (
     (activePageName.toLowerCase().includes('p2') && localQty === dbValue.p2) ||
     (activePageName.toLowerCase().includes('p3') && localQty === dbValue.p3) ||
     (!activePageName.toLowerCase().includes('p2') && !activePageName.toLowerCase().includes('p3') && (localQty === dbValue.p2 || localQty === dbValue.p3))
@@ -139,7 +142,7 @@ export const InventoryTooltip: React.FC<InventoryTooltipProps> = ({ inventory, d
         </div>
         
         <div className={`text-6xl font-black italic tracking-tighter mb-4 drop-shadow-[3px_3px_0px_white] ${isConfirmed ? 'text-green-600' : 'text-blue-600'}`}>
-           {inventoryValue !== undefined ? inventoryValue : <span className="text-red-500 text-base font-normal not-italic">查無資料</span>}
+           {inventoryValue !== undefined ? inventoryValue : (hasDBValue ? <span className="text-gray-400 text-base font-normal not-italic">本地無紀錄</span> : <span className="text-red-500 text-base font-normal not-italic">查無資料</span>)}
         </div>
 
         {/* 資料庫比對資訊 */}

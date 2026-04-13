@@ -27,18 +27,28 @@ const HighlightedText: React.FC<{
   onUpdateInventoryNewQuantity?: (partNumber: string, location: string, newQuantity: string) => void;
   dbInventory?: Record<string, { p2: number, p3: number }>;
 }> = ({ text, query, inventoryData, activePageName, onToggleInventoryConfirm, onUpdateInventoryNewQuantity, dbInventory }) => {
-  // 動態建立正則表達式來尋找所有可能的料號 (以防料號間夾雜各種符號)
+  const normalizeKey = (key: any) => (key || '').toString().replace(/[\s\u3000]/g, '').toUpperCase();
+
+  // 動態建立正則表達式來尋找所有可能的料號 (包含資料庫中的料號)
   const partRegex = useMemo(() => {
-    if (!inventoryData) return null;
-    const keys = Object.keys(inventoryData).filter(k => k.trim() !== '');
-    if (keys.length === 0) return null;
-    // 將所有料號逃脫特殊字元，並以 | 連接，建立捕捉群組
-    const escapedKeys = keys.map(k => k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
-    // 依長度排序，優先匹配較長的料號，避免短料號攔截長料號的子字串
-    escapedKeys.sort((a, b) => b.length - a.length);
-    // 加入 i flag 不分大小寫
+    const keysSet = new Set<string>();
+    
+    // 從本地錄入資料抓取
+    if (inventoryData) {
+      Object.keys(inventoryData).forEach(k => { if(k.trim()) keysSet.add(k.trim()); });
+    }
+    
+    // 從資料庫清單抓取 (這是解決「沒上傳 CSV 也能比對」的核心)
+    if (dbInventory) {
+      Object.keys(dbInventory).forEach(k => { if(k.trim()) keysSet.add(k.trim()); });
+    }
+
+    if (keysSet.size === 0) return null;
+    
+    const sortedKeys = Array.from(keysSet).sort((a, b) => b.length - a.length);
+    const escapedKeys = sortedKeys.map(k => k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
     return new RegExp(`(${escapedKeys.join('|')})`, 'gi');
-  }, [inventoryData]);
+  }, [inventoryData, dbInventory]);
 
   // 第一階段切割：料號
   const parts = partRegex ? text.split(partRegex) : [text];
@@ -48,24 +58,43 @@ const HighlightedText: React.FC<{
       {parts.map((part, i) => {
         if (!part) return null;
 
+        const normPart = normalizeKey(part);
+        
+        // 比對是否為料號
         let matchedKey: string | undefined;
-        if (partRegex && partRegex.test(part) && inventoryData && activePageName) {
-           matchedKey = Object.keys(inventoryData).find(k => k.toLowerCase() === part.toLowerCase());
-        }
-        const isPartNumber = !!matchedKey;
+        let dbValue: { p2: number, p3: number } | undefined;
+        let inventorySection: any = undefined;
 
-        // reset regex state if we used test()
+        if (partRegex && partRegex.test(part)) {
+           // 優先尋找資料庫匹配
+           if (dbInventory) {
+             const dbKey = Object.keys(dbInventory).find(k => normalizeKey(k) === normPart);
+             if (dbKey) {
+               dbValue = dbInventory[dbKey];
+               matchedKey = dbKey; // 以資料庫的 Key 為準
+             }
+           }
+           
+           // 尋找本地錄入匹配
+           if (inventoryData) {
+             const invKey = Object.keys(inventoryData).find(k => normalizeKey(k) === normPart);
+             if (invKey) {
+               inventorySection = inventoryData[invKey];
+               if (!matchedKey) matchedKey = invKey;
+             }
+           }
+        }
+
+        const isPartNumber = !!matchedKey;
         if (partRegex) partRegex.lastIndex = 0;
 
-        // 第二階段切割：搜尋高亮 (searchQuery)
+        // 第二階段切割：搜尋高亮
         const renderInner = () => {
           const q = query.trim();
           if (!q) return <>{part}</>;
-          
           const escapedQuery = q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
           const regex = new RegExp(`(${escapedQuery})`, 'gi');
           const subParts = part.split(regex);
-
           return (
             <>
               {subParts.map((sub, j) => 
@@ -81,13 +110,13 @@ const HighlightedText: React.FC<{
           );
         };
 
-        if (isPartNumber && matchedKey) {
+        if (isPartNumber && matchedKey && activePageName) {
           return (
             <InventoryTooltip 
               key={i} 
-              inventory={inventoryData[matchedKey]} 
-              dbValue={dbInventory?.[matchedKey]}
-              activePageName={activePageName as string}
+              inventory={inventorySection || {}} 
+              dbValue={dbValue}
+              activePageName={activePageName}
               onToggleConfirm={() => onToggleInventoryConfirm?.(matchedKey!, activePageName!)}
               onNewQuantityChange={(val) => onUpdateInventoryNewQuantity?.(matchedKey!, activePageName!, val)}
             >
