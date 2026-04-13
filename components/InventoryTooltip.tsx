@@ -30,6 +30,14 @@ export const InventoryTooltip: React.FC<InventoryTooltipProps> = ({ inventory, d
   const newQuantityValue = inventoryData?.newQuantity || '';
   const originalRemarks = inventoryData?.remarks || '';
 
+  // 1. 核心邏輯：優先從資料庫抓取對應廠區的庫存
+  const dbQty = activePageName.toLowerCase().includes('p2') ? dbValue?.p2 : 
+                activePageName.toLowerCase().includes('p3') ? dbValue?.p3 : 
+                undefined;
+
+  // 2. 決定大數字顯示：有雲端用雲端，沒雲端用本地
+  const displayValue = dbQty !== undefined ? dbQty : inventoryValue;
+
   // 比對邏輯
   const localQty = inventoryValue !== undefined ? parseFloat(inventoryValue.toString()) : NaN;
   
@@ -142,7 +150,7 @@ export const InventoryTooltip: React.FC<InventoryTooltipProps> = ({ inventory, d
         </div>
         
         <div className={`text-4xl font-black italic tracking-tighter mb-1 drop-shadow-[2px_2px_0px_white] ${isConfirmed ? 'text-green-600' : 'text-blue-600'}`}>
-           {inventoryValue !== undefined ? inventoryValue : (hasDBValue ? "" : <span className="text-red-500 text-[10px] font-normal not-italic">查與資料庫不符</span>)}
+           {displayValue !== undefined ? displayValue : <span className="text-red-500 text-[10px] font-normal not-italic">查無資料</span>}
         </div>
 
         {/* 資料庫庫存資訊 */}
