@@ -26,7 +26,8 @@ const HighlightedText: React.FC<{
   onToggleInventoryConfirm?: (partNumber: string, location: string) => void;
   onUpdateInventoryNewQuantity?: (partNumber: string, location: string, newQuantity: string) => void;
   dbInventory?: Record<string, { p2: number, p3: number }>;
-}> = ({ text, query, inventoryData, activePageName, onToggleInventoryConfirm, onUpdateInventoryNewQuantity, dbInventory }) => {
+  disabled?: boolean;
+}> = ({ text, query, inventoryData, activePageName, onToggleInventoryConfirm, onUpdateInventoryNewQuantity, dbInventory, disabled }) => {
   const normalizeKey = (key: any) => (key || '').toString().replace(/[\s\u3000]/g, '').toUpperCase();
 
   // 動態建立正則表達式來尋找所有可能的料號 (包含資料庫中的料號)
@@ -110,7 +111,7 @@ const HighlightedText: React.FC<{
           );
         };
 
-        if (isPartNumber && matchedKey && activePageName) {
+        if (isPartNumber && matchedKey && activePageName && !disabled) {
           return (
             <InventoryTooltip 
               key={i} 
@@ -180,15 +181,16 @@ const AutoHeightTextarea: React.FC<{
         } ${className}`}
       >
         {value ? (
-          <HighlightedText 
-            text={value} 
-            query={searchQuery || ''} 
-            inventoryData={disableInventory ? undefined : inventoryData} 
-            activePageName={activePageName} 
-            onToggleInventoryConfirm={onToggleInventoryConfirm}
-            onUpdateInventoryNewQuantity={onUpdateInventoryNewQuantity}
-            dbInventory={dbInventory}
-          />
+            <HighlightedText 
+              text={value} 
+              query={searchQuery || ''} 
+              inventoryData={disableInventory ? undefined : inventoryData} 
+              activePageName={activePageName} 
+              onToggleInventoryConfirm={onToggleInventoryConfirm}
+              onUpdateInventoryNewQuantity={onUpdateInventoryNewQuantity}
+              dbInventory={dbInventory}
+              disabled={!readOnly}
+            />
         ) : (
           <span className="opacity-30">{placeholder}</span>
         )}

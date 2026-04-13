@@ -141,23 +141,23 @@ export const InventoryTooltip: React.FC<InventoryTooltipProps> = ({ inventory, d
           )}
         </div>
         
-        <div className={`text-5xl font-black italic tracking-tighter mb-2 drop-shadow-[2px_2px_0px_white] ${isConfirmed ? 'text-green-600' : 'text-blue-600'}`}>
-           {inventoryValue !== undefined ? inventoryValue : (hasDBValue ? "" : <span className="text-red-500 text-sm font-normal not-italic">查無資料</span>)}
+        <div className={`text-4xl font-black italic tracking-tighter mb-1 drop-shadow-[2px_2px_0px_white] ${isConfirmed ? 'text-green-600' : 'text-blue-600'}`}>
+           {inventoryValue !== undefined ? inventoryValue : (hasDBValue ? "" : <span className="text-red-500 text-[10px] font-normal not-italic">查與資料庫不符</span>)}
         </div>
 
         {/* 資料庫庫存資訊 */}
         {dbValue && (
-          <div className="mb-6 p-4 rounded-2xl border-2 border-black shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] bg-gray-50">
-            <h5 className="text-[10px] font-black uppercase text-gray-500 mb-2 tracking-widest flex items-center gap-2">
-              <i className="fas fa-database text-blue-500"></i> 資料庫庫存數據
+          <div className="mb-3 p-3 rounded-2xl border-2 border-black shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] bg-gray-50">
+            <h5 className="text-[9px] font-black uppercase text-gray-500 mb-1 tracking-widest flex items-center gap-2">
+              <i className="fas fa-database text-blue-500 text-[8px]"></i> 雲端庫存
             </h5>
-            <div className="flex flex-col gap-1">
-              <div className="flex justify-between items-center text-xs">
-                <span className="font-bold text-gray-600 text-[10px]">P2 廠區:</span>
+            <div className="flex flex-col gap-0.5">
+              <div className="flex justify-between items-center text-[10px]">
+                <span className="font-bold text-gray-600">P2 廠區:</span>
                 <span className="font-black font-mono">{dbValue.p2}</span>
               </div>
-              <div className="flex justify-between items-center text-xs">
-                <span className="font-bold text-gray-600 text-[10px]">P3 廠區:</span>
+              <div className="flex justify-between items-center text-[10px]">
+                <span className="font-bold text-gray-600">P3 廠區:</span>
                 <span className="font-black font-mono">{dbValue.p3}</span>
               </div>
             </div>
@@ -191,27 +191,24 @@ export const InventoryTooltip: React.FC<InventoryTooltipProps> = ({ inventory, d
 
         <button 
           type="button"
-          className={`w-full flex items-center gap-3 p-3 rounded-2xl border-4 transition-all cursor-pointer select-none active:scale-95
-            ${isConfirmed 
-              ? 'bg-green-600 border-black text-white shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]' 
-              : 'bg-white border-black text-black hover:bg-yellow-100'
-            }`}
-          onClick={(e) => {
+          onPointerDown={(e) => {
             e.preventDefault();
             e.stopPropagation();
             onToggleConfirm?.();
           }}
+          className={`w-full flex items-center gap-2 p-2 rounded-xl border-2 transition-all cursor-pointer select-none active:scale-95
+            ${isConfirmed 
+              ? 'bg-green-600 border-black text-white shadow-[3px_3px_0px_0px_rgba(0,0,0,1)]' 
+              : 'bg-white border-black text-black hover:bg-yellow-100'
+            }`}
         >
-          <div className={`w-8 h-8 rounded-xl border-2 flex items-center justify-center transition-all bg-white
+          <div className={`w-6 h-6 rounded-lg border-2 flex items-center justify-center transition-all bg-white
             ${isConfirmed ? 'border-black text-green-600' : 'border-black text-transparent'}
           `}>
-            <i className={`fas ${isConfirmed ? 'fa-check-double text-xs' : 'fa-check text-xs'}`}></i>
+            <i className={`fas ${isConfirmed ? 'fa-check-double text-[8px]' : 'fa-check text-[8px]'}`}></i>
           </div>
           <div className="flex flex-col items-start translate-y-[-1px]">
-            <span className="font-black text-base uppercase leading-none">{isConfirmed ? '核對正確' : '數量確認'}</span>
-            <span className={`text-[9px] font-bold ${isConfirmed ? 'text-green-100' : 'text-gray-400'}`}>
-              {isConfirmed ? '點擊取消' : '點擊標記'}
-            </span>
+            <span className="font-black text-xs uppercase leading-none">{isConfirmed ? '核對正確' : '數量確認'}</span>
           </div>
         </button>
       </div>

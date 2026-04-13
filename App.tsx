@@ -147,16 +147,33 @@ const App: React.FC = () => {
   const toggleInventoryConfirm = (partNumber: string, location: string) => {
     if (!partNumber || !location) return;
     
+    // 1. 先計算新的狀態
+    let newStatus = false;
+    const normPN = normalizeKey(partNumber);
+    const existingSection = Object.entries(inventoryData).find(([k]) => normalizeKey(k) === normPN)?.[1];
+    if (existingSection) {
+      const locKey = Object.keys(existingSection).find(l => {
+        const k1 = l.toLowerCase().trim();
+        const k2 = location.toLowerCase().trim();
+        return k1.includes(k2) || k2.includes(k1);
+      });
+      if (locKey) {
+        newStatus = !existingSection[locKey].confirmed;
+      } else {
+        newStatus = true;
+      }
+    } else {
+      newStatus = true;
+    }
+
+    // 2. 更新 inventoryData
     setInventoryData(prev => {
       const next = JSON.parse(JSON.stringify(prev));
-      const normPN = normalizeKey(partNumber);
       let pnKey = Object.keys(next).find(k => normalizeKey(k) === normPN);
-
       if (!pnKey) {
         pnKey = partNumber;
         next[pnKey] = {};
       }
-
       const locKey = Object.keys(next[pnKey]).find(l => {
         const k1 = l.toLowerCase().trim();
         const k2 = location.toLowerCase().trim();
@@ -166,39 +183,33 @@ const App: React.FC = () => {
       if (!next[pnKey][locKey]) {
         next[pnKey][locKey] = { quantity: 0, confirmed: false };
       }
-
-      const newStatus = !next[pnKey][locKey].confirmed;
       next[pnKey][locKey].confirmed = newStatus;
-
-      // 同步回填到表格
-      setPages(currentPages => {
-        return currentPages.map(p => {
-          if (p.id !== activePageId) return p;
-          return {
-            ...p,
-            tables: p.tables.map(table => {
-              const confirmColIdx = table.columns.findIndex(c => c.trim() === '數量確認');
-              if (confirmColIdx === -1) return table;
-
-              const newRows = table.rows.map(row => {
-                const hasPartNumber = row.some(cell => 
-                  normalizeKey(cell) === normPN
-                );
-                if (hasPartNumber) {
-                  const newRow = [...row];
-                  newRow[confirmColIdx] = newStatus ? 'OK' : '';
-                  return newRow;
-                }
-                return row;
-              });
-
-              return { ...table, rows: newRows };
-            })
-          };
-        });
-      });
-
       return next;
+    });
+
+    // 3. 更新表格狀態並觸發回填
+    setPages(currentPages => {
+      return currentPages.map(p => {
+        if (p.id !== activePageId) return p;
+        return {
+          ...p,
+          tables: p.tables.map(table => {
+            const confirmColIdx = table.columns.findIndex(c => c.trim() === '數量確認');
+            if (confirmColIdx === -1) return table;
+
+            const newRows = table.rows.map(row => {
+              const hasPartNumber = row.some(cell => normalizeKey(cell) === normPN);
+              if (hasPartNumber) {
+                const newRow = [...row];
+                newRow[confirmColIdx] = newStatus ? 'OK' : '';
+                return newRow;
+              }
+              return row;
+            });
+            return { ...table, rows: newRows };
+          })
+        };
+      });
     });
   };
 
