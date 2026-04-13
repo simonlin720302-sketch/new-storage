@@ -145,26 +145,20 @@ export const InventoryTooltip: React.FC<InventoryTooltipProps> = ({ inventory, d
            {inventoryValue !== undefined ? inventoryValue : (hasDBValue ? <span className="text-gray-400 text-base font-normal not-italic">本地無紀錄</span> : <span className="text-red-500 text-base font-normal not-italic">查無資料</span>)}
         </div>
 
-        {/* 資料庫比對資訊 */}
+        {/* 資料庫庫存資訊 */}
         {dbValue && (
-          <div className={`mb-6 p-4 rounded-2xl border-2 border-black shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] ${isMatch ? 'bg-green-50' : 'bg-red-50'}`}>
+          <div className="mb-6 p-4 rounded-2xl border-2 border-black shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] bg-gray-50">
             <h5 className="text-[10px] font-black uppercase text-gray-500 mb-2 tracking-widest flex items-center gap-2">
-              <i className="fas fa-database text-blue-500"></i> 資料庫比對狀態
+              <i className="fas fa-database text-blue-500"></i> 資料庫庫存數據
             </h5>
             <div className="flex flex-col gap-1">
               <div className="flex justify-between items-center text-xs">
-                <span className="font-bold text-gray-600 text-[10px]">資料庫 P2:</span>
+                <span className="font-bold text-gray-600 text-[10px]">P2 廠區:</span>
                 <span className="font-black font-mono">{dbValue.p2}</span>
               </div>
               <div className="flex justify-between items-center text-xs">
-                <span className="font-bold text-gray-600 text-[10px]">資料庫 P3:</span>
+                <span className="font-bold text-gray-600 text-[10px]">P3 廠區:</span>
                 <span className="font-black font-mono">{dbValue.p3}</span>
-              </div>
-              <div className="mt-2 pt-2 border-t border-black/10 flex justify-between items-center">
-                <span className="font-black text-[10px] uppercase">當前狀態:</span>
-                <span className={`text-xs font-black px-2 py-0.5 rounded border-2 border-black shadow-[1px_1px_0px_0px_rgba(0,0,0,1)] ${isMatch ? 'bg-green-500 text-white' : 'bg-red-500 text-white animate-pulse'}`}>
-                  {isMatch ? '一致 ✓' : '不一致 ✗'}
-                </span>
               </div>
             </div>
           </div>
