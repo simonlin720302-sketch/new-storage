@@ -3,13 +3,14 @@ import { createPortal } from 'react-dom';
 
 interface InventoryTooltipProps {
   inventory: Record<string, { quantity: number | string, confirmed: boolean, name?: string, category?: string }>;
+  dbValue?: { p2: number, p3: number };
   activePageName: string;
   children: React.ReactNode;
   onToggleConfirm?: () => void;
   onNewQuantityChange?: (newQuantity: string) => void;
 }
 
-export const InventoryTooltip: React.FC<InventoryTooltipProps> = ({ inventory, activePageName, children, onToggleConfirm, onNewQuantityChange }) => {
+export const InventoryTooltip: React.FC<InventoryTooltipProps> = ({ inventory, dbValue, activePageName, children, onToggleConfirm, onNewQuantityChange }) => {
   const [showTooltip, setShowTooltip] = useState(false);
   const [position, setPosition] = useState<'top' | 'bottom'>('top');
   const [coords, setCoords] = useState({ top: 0, left: 0, width: 0 });
@@ -28,6 +29,14 @@ export const InventoryTooltip: React.FC<InventoryTooltipProps> = ({ inventory, a
   const category = inventoryData?.category || '';
   const newQuantityValue = inventoryData?.newQuantity || '';
   const originalRemarks = inventoryData?.remarks || '';
+
+  // 比對邏輯
+  const localQty = parseFloat(inventoryValue?.toString() || '0');
+  const isMatch = dbValue ? (
+    (activePageName.toLowerCase().includes('p2') && localQty === dbValue.p2) ||
+    (activePageName.toLowerCase().includes('p3') && localQty === dbValue.p3) ||
+    (!activePageName.toLowerCase().includes('p2') && !activePageName.toLowerCase().includes('p3') && (localQty === dbValue.p2 || localQty === dbValue.p3))
+  ) : false;
 
   const updatePosition = () => {
     if (triggerRef.current) {
@@ -132,6 +141,31 @@ export const InventoryTooltip: React.FC<InventoryTooltipProps> = ({ inventory, a
         <div className={`text-6xl font-black italic tracking-tighter mb-4 drop-shadow-[3px_3px_0px_white] ${isConfirmed ? 'text-green-600' : 'text-blue-600'}`}>
            {inventoryValue !== undefined ? inventoryValue : <span className="text-red-500 text-base font-normal not-italic">查無資料</span>}
         </div>
+
+        {/* 資料庫比對資訊 */}
+        {dbValue && (
+          <div className={`mb-6 p-4 rounded-2xl border-2 border-black shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] ${isMatch ? 'bg-green-50' : 'bg-red-50'}`}>
+            <h5 className="text-[10px] font-black uppercase text-gray-500 mb-2 tracking-widest flex items-center gap-2">
+              <i className="fas fa-database text-blue-500"></i> 資料庫比對狀態
+            </h5>
+            <div className="flex flex-col gap-1">
+              <div className="flex justify-between items-center text-xs">
+                <span className="font-bold text-gray-600 text-[10px]">資料庫 P2:</span>
+                <span className="font-black font-mono">{dbValue.p2}</span>
+              </div>
+              <div className="flex justify-between items-center text-xs">
+                <span className="font-bold text-gray-600 text-[10px]">資料庫 P3:</span>
+                <span className="font-black font-mono">{dbValue.p3}</span>
+              </div>
+              <div className="mt-2 pt-2 border-t border-black/10 flex justify-between items-center">
+                <span className="font-black text-[10px] uppercase">當前狀態:</span>
+                <span className={`text-xs font-black px-2 py-0.5 rounded border-2 border-black shadow-[1px_1px_0px_0px_rgba(0,0,0,1)] ${isMatch ? 'bg-green-500 text-white' : 'bg-red-500 text-white animate-pulse'}`}>
+                  {isMatch ? '一致 ✓' : '不一致 ✗'}
+                </span>
+              </div>
+            </div>
+          </div>
+        )}
 
         {originalRemarks && (
           <div className="mb-6 p-4 bg-gray-50 border-2 border-black rounded-2xl text-left shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]">

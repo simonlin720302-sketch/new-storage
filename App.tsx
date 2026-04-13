@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import * as xlsx from 'xlsx';
 import { TableData, PageData, InventoryData } from './types.ts';
 import { TableEditor } from './components/TableEditor.tsx';
+import { supabase } from './supabase.ts';
 
 const STORAGE_KEY = 'table_architect_v5_final';
 const INVENTORY_STORAGE_KEY = 'table_architect_inventory_data';
@@ -24,8 +25,38 @@ const App: React.FC = () => {
   const [pageIdToConfirmDelete, setPageIdToConfirmDelete] = useState<string | null>(null);
   const [isEditMode, setIsEditMode] = useState(true); 
   const [inventoryData, setInventoryData] = useState<InventoryData>({});
+  const [dbInventory, setDbInventory] = useState<Record<string, { p2: number, p3: number }>>({});
+  const [isSyncing, setIsSyncing] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const inventoryInputRef = useRef<HTMLInputElement>(null);
+
+  const fetchDatabaseInventory = async () => {
+    setIsSyncing(true);
+    try {
+      const { data, error } = await supabase
+        .from('sample_inventory')
+        .select('part_number, p2_quantity, p3_quantity');
+
+      if (error) throw error;
+      
+      const mapped: Record<string, { p2: number, p3: number }> = {};
+      data.forEach(item => {
+        mapped[item.part_number] = {
+          p2: item.p2_quantity || 0,
+          p3: item.p3_quantity || 0
+        };
+      });
+      setDbInventory(mapped);
+    } catch (err) {
+      console.error('Failed to fetch DB inventory:', err);
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchDatabaseInventory();
+  }, []);
 
   useEffect(() => {
     const saved = localStorage.getItem(STORAGE_KEY);
@@ -795,6 +826,15 @@ const App: React.FC = () => {
         </div>
 
         <div className="flex items-center gap-4">
+          <button 
+            onClick={fetchDatabaseInventory}
+            disabled={isSyncing}
+            className={`flex items-center gap-2 px-4 py-2 border-4 border-black rounded-xl font-black shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] active:translate-y-0.5 transition-all ${isSyncing ? 'bg-gray-200 cursor-wait' : 'bg-blue-400 hover:bg-blue-500'}`}
+          >
+            <i className={`fas fa-sync-alt ${isSyncing ? 'animate-spin' : ''}`}></i>
+            {isSyncing ? '比對中...' : '資料庫比對'}
+          </button>
+
           <div className="flex items-center gap-2 bg-gray-100 p-1.5 rounded-xl border-2 border-black">
             <span className={`text-[10px] font-black uppercase ml-1 ${!isEditMode ? 'text-black' : 'text-gray-400'}`}>檢視</span>
             <button 
@@ -904,6 +944,7 @@ const App: React.FC = () => {
                 table={table} 
                 isEditMode={isEditMode} 
                 inventoryData={inventoryData}
+                dbInventory={dbInventory}
                 activePageName={activePage?.name || ''}
                 onUpdate={updateTable} 
                 onDelete={deleteTable} 

@@ -11,6 +11,7 @@ interface TableEditorProps {
   onUpdateInventoryNewQuantity?: (partNumber: string, location: string, newQuantity: string) => void;
   isEditMode: boolean;
   inventoryData?: InventoryData;
+  dbInventory?: Record<string, { p2: number, p3: number }>;
   activePageName?: string;
   searchQuery?: string;
   isFirstMatch?: boolean;
@@ -24,7 +25,8 @@ const HighlightedText: React.FC<{
   activePageName?: string;
   onToggleInventoryConfirm?: (partNumber: string, location: string) => void;
   onUpdateInventoryNewQuantity?: (partNumber: string, location: string, newQuantity: string) => void;
-}> = ({ text, query, inventoryData, activePageName, onToggleInventoryConfirm, onUpdateInventoryNewQuantity }) => {
+  dbInventory?: Record<string, { p2: number, p3: number }>;
+}> = ({ text, query, inventoryData, activePageName, onToggleInventoryConfirm, onUpdateInventoryNewQuantity, dbInventory }) => {
   // 動態建立正則表達式來尋找所有可能的料號 (以防料號間夾雜各種符號)
   const partRegex = useMemo(() => {
     if (!inventoryData) return null;
@@ -84,6 +86,7 @@ const HighlightedText: React.FC<{
             <InventoryTooltip 
               key={i} 
               inventory={inventoryData[matchedKey]} 
+              dbValue={dbInventory?.[matchedKey]}
               activePageName={activePageName as string}
               onToggleConfirm={() => onToggleInventoryConfirm?.(matchedKey!, activePageName!)}
               onNewQuantityChange={(val) => onUpdateInventoryNewQuantity?.(matchedKey!, activePageName!, val)}
@@ -112,7 +115,8 @@ const AutoHeightTextarea: React.FC<{
   disableInventory?: boolean;
   onToggleInventoryConfirm?: (partNumber: string, location: string) => void;
   onUpdateInventoryNewQuantity?: (partNumber: string, location: string, newQuantity: string) => void;
-}> = ({ value, onChange, className, placeholder, textAlign = 'left', searchQuery = '', readOnly = false, inventoryData, activePageName, disableInventory = false, onToggleInventoryConfirm, onUpdateInventoryNewQuantity }) => {
+  dbInventory?: Record<string, { p2: number, p3: number }>;
+}> = ({ value, onChange, className, placeholder, textAlign = 'left', searchQuery = '', readOnly = false, inventoryData, activePageName, disableInventory = false, onToggleInventoryConfirm, onUpdateInventoryNewQuantity, dbInventory }) => {
   const [isFocused, setIsFocused] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -154,6 +158,7 @@ const AutoHeightTextarea: React.FC<{
             activePageName={activePageName} 
             onToggleInventoryConfirm={onToggleInventoryConfirm}
             onUpdateInventoryNewQuantity={onUpdateInventoryNewQuantity}
+            dbInventory={dbInventory}
           />
         ) : (
           <span className="opacity-30">{placeholder}</span>
@@ -187,6 +192,7 @@ export const TableEditor: React.FC<TableEditorProps> = ({
   onUpdateInventoryNewQuantity,
   isEditMode, 
   inventoryData = {}, 
+  dbInventory = {},
   activePageName = '', 
   searchQuery = '', 
   isFirstMatch = false 
@@ -377,6 +383,7 @@ export const TableEditor: React.FC<TableEditorProps> = ({
                         disableInventory={isFirstCol || isEditMode}
                         onToggleInventoryConfirm={onToggleInventoryConfirm}
                         onUpdateInventoryNewQuantity={onUpdateInventoryNewQuantity}
+                        dbInventory={dbInventory}
                       />
                     </td>
                   );
