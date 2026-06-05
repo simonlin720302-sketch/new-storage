@@ -23,7 +23,7 @@ const App: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [isEditingPageName, setIsEditingPageName] = useState<string | null>(null);
   const [pageIdToConfirmDelete, setPageIdToConfirmDelete] = useState<string | null>(null);
-  const [isEditMode, setIsEditMode] = useState(true); 
+  const [isEditMode, setIsEditMode] = useState(false); 
   const [inventoryData, setInventoryData] = useState<InventoryData>({});
   const [dbInventory, setDbInventory] = useState<Record<string, { p2: number, p3: number, name?: string, category?: string }>>({});
   const [isSyncing, setIsSyncing] = useState(false);
