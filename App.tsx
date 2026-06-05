@@ -25,7 +25,7 @@ const App: React.FC = () => {
   const [pageIdToConfirmDelete, setPageIdToConfirmDelete] = useState<string | null>(null);
   const [isEditMode, setIsEditMode] = useState(true); 
   const [inventoryData, setInventoryData] = useState<InventoryData>({});
-  const [dbInventory, setDbInventory] = useState<Record<string, { p2: number, p3: number }>>({});
+  const [dbInventory, setDbInventory] = useState<Record<string, { p2: number, p3: number, name?: string, category?: string }>>({});
   const [isSyncing, setIsSyncing] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -33,20 +33,61 @@ const App: React.FC = () => {
     setIsSyncing(true);
     try {
       const { data, error } = await supabase
-        .from('sample_inventory')
-        .select('part_number, p2_quantity, p3_quantity');
+        .from('check storage')
+        .select('part_number, stock_type, location_quantity, product_name, category, confirmed, new_quantity, remarks');
 
       if (error) throw error;
       
-      const mapped: Record<string, { p2: number, p3: number }> = {};
+      const nextInventory: InventoryData = {};
+      const nextDbInventory: Record<string, { p2: number, p3: number, name?: string, category?: string }> = {};
+
       data.forEach(item => {
-        const normKey = normalizeKey(item.part_number);
-        mapped[normKey] = {
-          p2: item.p2_quantity || 0,
-          p3: item.p3_quantity || 0
+        if (!item.part_number) return;
+        const pn = item.part_number;
+        const normKey = normalizeKey(pn);
+        const qty = Number(item.location_quantity) || 0;
+        const stockType = item.stock_type || '';
+        const stockTypeUpper = stockType.toUpperCase();
+
+        // 整理每個料號+位置的詳細盤點資料
+        if (!nextInventory[pn]) {
+          nextInventory[pn] = {};
+        }
+        nextInventory[pn][stockType] = {
+          quantity: qty,
+          confirmed: item.confirmed || false,
+          name: item.product_name || undefined,
+          category: item.category || undefined,
+          newQuantity: item.new_quantity || '',
+          remarks: item.remarks || ''
         };
+
+        // 彙整料號的廠區加總 (p2/p3)
+        if (!nextDbInventory[normKey]) {
+          nextDbInventory[normKey] = { 
+            p2: 0, 
+            p3: 0, 
+            name: item.product_name || undefined, 
+            category: item.category || undefined 
+          };
+        } else {
+          if (!nextDbInventory[normKey].name && item.product_name) {
+            nextDbInventory[normKey].name = item.product_name;
+          }
+          if (!nextDbInventory[normKey].category && item.category) {
+            nextDbInventory[normKey].category = item.category;
+          }
+        }
+        
+        if (stockTypeUpper.includes('P2')) {
+          nextDbInventory[normKey].p2 += qty;
+        } else if (stockTypeUpper.includes('P3')) {
+          nextDbInventory[normKey].p3 += qty;
+        }
       });
-      setDbInventory(mapped);
+
+      setInventoryData(nextInventory);
+      setDbInventory(nextDbInventory);
     } catch (err) {
       console.error('Failed to fetch DB inventory:', err);
     } finally {
@@ -59,33 +100,13 @@ const App: React.FC = () => {
 
     // 啟動 Supabase Realtime 即時訂閱
     const subscription = supabase
-      .channel('public:sample_inventory')
+      .channel('public:check storage')
       .on(
         'postgres_changes',
-        { event: '*', schema: 'public', table: 'sample_inventory' },
+        { event: '*', schema: 'public', table: 'check storage' },
         (payload) => {
           console.log('收到資料庫即時變更：', payload);
-          
-          if (payload.eventType === 'UPDATE' || payload.eventType === 'INSERT') {
-            // 單筆增量更新 dbInventory，避免重新請求整個資料表
-            const item = payload.new as any;
-            const normKey = normalizeKey(item.part_number);
-            setDbInventory(prev => ({
-              ...prev,
-              [normKey]: {
-                p2: item.p2_quantity || 0,
-                p3: item.p3_quantity || 0
-              }
-            }));
-          } else if (payload.eventType === 'DELETE') {
-             const item = payload.old as any;
-             const normKey = normalizeKey(item.part_number);
-             setDbInventory(prev => {
-                const next = { ...prev };
-                delete next[normKey];
-                return next;
-             });
-          }
+          fetchDatabaseInventory();
         }
       )
       .subscribe();
@@ -112,15 +133,6 @@ const App: React.FC = () => {
     } else {
       createDefaultPage();
     }
-
-    const savedInventory = localStorage.getItem(INVENTORY_STORAGE_KEY);
-    if (savedInventory) {
-      try {
-        setInventoryData(JSON.parse(savedInventory));
-      } catch (e) {
-        console.error("Failed to load inventory data:", e);
-      }
-    }
   }, []);
 
   const createDefaultPage = () => {
@@ -140,17 +152,15 @@ const App: React.FC = () => {
     }
   }, [pages]);
 
-  useEffect(() => {
-    if (inventoryData && Object.keys(inventoryData).length > 0) {
-      localStorage.setItem(INVENTORY_STORAGE_KEY, JSON.stringify(inventoryData));
-    }
-  }, [inventoryData]);
+
 
   // 輔助函式：在 inventoryData 中尋找匹配的原始 Key (不分大小寫/空白)
   const findInventoryPnKey = (pn: string) => {
     const norm = normalizeKey(pn);
     return Object.keys(inventoryData).find(k => normalizeKey(k) === norm);
   };
+
+  const debounceTimers = useRef<Record<string, NodeJS.Timeout>>({});
 
   const updateInventoryNewQuantity = (partNumber: string, location: string, newQuantity: string) => {
     if (!partNumber || !location) return;
@@ -160,57 +170,11 @@ const App: React.FC = () => {
       const normPN = normalizeKey(partNumber);
       let pnKey = Object.keys(next).find(k => normalizeKey(k) === normPN);
 
-      // 如果本地還沒有這個料號的紀錄，則新增一個 (基於資料庫連動)
       if (!pnKey) {
         pnKey = partNumber;
         next[pnKey] = {};
       }
 
-      const locKey = Object.keys(next[pnKey]).find(l => {
-        const k1 = l.toLowerCase().trim();
-        const k2 = location.toLowerCase().trim();
-        return k1.includes(k2) || k2.includes(k1);
-      }) || location; // 若找不到匹配廠區，直接用傳入的名稱
-
-      if (!next[pnKey][locKey]) {
-        next[pnKey][locKey] = { quantity: 0, confirmed: false };
-      }
-
-      next[pnKey][locKey].newQuantity = newQuantity;
-      return next;
-    });
-  };
-
-  const toggleInventoryConfirm = (partNumber: string, location: string) => {
-    if (!partNumber || !location) return;
-    
-    // 1. 先計算新的狀態
-    let newStatus = false;
-    const normPN = normalizeKey(partNumber);
-    const existingSection = Object.entries(inventoryData).find(([k]) => normalizeKey(k) === normPN)?.[1];
-    if (existingSection) {
-      const locKey = Object.keys(existingSection).find(l => {
-        const k1 = l.toLowerCase().trim();
-        const k2 = location.toLowerCase().trim();
-        return k1.includes(k2) || k2.includes(k1);
-      });
-      if (locKey) {
-        newStatus = !existingSection[locKey].confirmed;
-      } else {
-        newStatus = true;
-      }
-    } else {
-      newStatus = true;
-    }
-
-    // 2. 更新 inventoryData
-    setInventoryData(prev => {
-      const next = JSON.parse(JSON.stringify(prev));
-      let pnKey = Object.keys(next).find(k => normalizeKey(k) === normPN);
-      if (!pnKey) {
-        pnKey = partNumber;
-        next[pnKey] = {};
-      }
       const locKey = Object.keys(next[pnKey]).find(l => {
         const k1 = l.toLowerCase().trim();
         const k2 = location.toLowerCase().trim();
@@ -220,7 +184,83 @@ const App: React.FC = () => {
       if (!next[pnKey][locKey]) {
         next[pnKey][locKey] = { quantity: 0, confirmed: false };
       }
-      next[pnKey][locKey].confirmed = newStatus;
+
+      next[pnKey][locKey].newQuantity = newQuantity;
+      return next;
+    });
+
+    // Debounce database write
+    const timerKey = `${partNumber}::${location}`;
+    if (debounceTimers.current[timerKey]) {
+      clearTimeout(debounceTimers.current[timerKey]);
+    }
+    debounceTimers.current[timerKey] = setTimeout(async () => {
+      delete debounceTimers.current[timerKey];
+      const normPN = normalizeKey(partNumber);
+      let actualPN = partNumber;
+      let actualLocation = location;
+      const existingSection = Object.entries(inventoryData).find(([k]) => normalizeKey(k) === normPN)?.[1];
+      if (existingSection) {
+        const locKey = Object.keys(existingSection).find(l => {
+          const k1 = l.toLowerCase().trim();
+          const k2 = location.toLowerCase().trim();
+          return k1.includes(k2) || k2.includes(k1);
+        });
+        if (locKey) {
+          actualLocation = locKey;
+        }
+        const pnKey = Object.keys(inventoryData).find(k => normalizeKey(k) === normPN);
+        if (pnKey) actualPN = pnKey;
+      }
+
+      const { error } = await supabase
+        .from('check storage')
+        .update({ new_quantity: newQuantity })
+        .eq('part_number', actualPN)
+        .eq('stock_type', actualLocation);
+      if (error) {
+        console.error('Failed to update quantity in DB:', error);
+      }
+    }, 500);
+  };
+
+  const toggleInventoryConfirm = async (partNumber: string, location: string) => {
+    if (!partNumber || !location) return;
+    
+    // 1. 先計算新的狀態
+    let newStatus = false;
+    const normPN = normalizeKey(partNumber);
+    const existingSection = Object.entries(inventoryData).find(([k]) => normalizeKey(k) === normPN)?.[1];
+    
+    let actualPN = partNumber;
+    let actualLocation = location;
+
+    if (existingSection) {
+      const locKey = Object.keys(existingSection).find(l => {
+        const k1 = l.toLowerCase().trim();
+        const k2 = location.toLowerCase().trim();
+        return k1.includes(k2) || k2.includes(k1);
+      });
+      if (locKey) {
+        newStatus = !existingSection[locKey].confirmed;
+        actualLocation = locKey;
+      } else {
+        newStatus = true;
+      }
+      const pnKey = Object.keys(inventoryData).find(k => normalizeKey(k) === normPN);
+      if (pnKey) actualPN = pnKey;
+    } else {
+      newStatus = true;
+    }
+
+    // 2. 更新 inventoryData
+    setInventoryData(prev => {
+      const next = JSON.parse(JSON.stringify(prev));
+      if (!next[actualPN]) next[actualPN] = {};
+      if (!next[actualPN][actualLocation]) {
+        next[actualPN][actualLocation] = { quantity: 0, confirmed: false };
+      }
+      next[actualPN][actualLocation].confirmed = newStatus;
       return next;
     });
 
@@ -248,82 +288,129 @@ const App: React.FC = () => {
         };
       });
     });
+
+    // 4. 更新資料庫
+    const { error } = await supabase
+      .from('check storage')
+      .update({ confirmed: newStatus })
+      .eq('part_number', actualPN)
+      .eq('stock_type', actualLocation);
+
+    if (error) {
+      console.error('Failed to update confirm status in DB:', error);
+    }
   };
 
-  // 監聽表格變動，反向連動：手動打 OK 則自動勾選庫存提示，並補完品名資訊
+  // 監聽 inventoryData 變動，同步回填所有表格內對應的「數量確認」與「新數量（盤點數量）」欄位
   useEffect(() => {
-    if (!activePage) return;
+    if (pages.length === 0) return;
     
-    const nextInventory = JSON.parse(JSON.stringify(inventoryData));
     let hasChange = false;
+    const nextPages = pages.map(page => {
+      const pageName = page.name;
+      const newTables = page.tables.map(table => {
+        const findColIdx = (targets: string[]) => table.columns.findIndex(c => {
+          if (!c) return false;
+          const cleanCol = c.toString().replace(/[\s\u3000]/g, '').toLowerCase();
+          return targets.some(t => cleanCol.includes(t.toLowerCase()));
+        });
 
-    activePage.tables.forEach(table => {
-      // 寬鬆比對欄位名稱
-      const findColIdx = (targets: string[]) => table.columns.findIndex(c => {
-        if (!c) return false;
-        const cleanCol = c.toString().replace(/[\s\u3000]/g, '').toLowerCase();
-        return targets.some(t => cleanCol.includes(t.toLowerCase()));
-      });
+        const confirmColIdx = findColIdx(['數量確認', '核對', '確認', 'check']);
+        const newQtyColIdx = findColIdx(['新數量', '盤點數量', '實盤數量']);
+        const pnIdx = findColIdx(['料號', 'partno', 'pn', '品號', '編號', '物料編號', 'itemno']);
 
-      const confirmColIdx = findColIdx(['數量確認', '核對', '確認', 'check']);
-      const pnIdx = findColIdx(['料號', 'partno', 'pn', '品號', '編號', '物料編號', 'itemno']);
-      const nameIdx = findColIdx(['品名', '產品名稱', '料號名稱', 'itemname', 'description', '名稱', '規格', '物料名稱']);
-      const catIdx = findColIdx(['產品類別', '類別', 'category', 'type', '分類', '產品種類', '物料類別']);
+        if (confirmColIdx === -1 && newQtyColIdx === -1) return table;
+        if (pnIdx === -1) return table;
 
-      if (pnIdx === -1) return;
+        let tableChanged = false;
+        const newRows = table.rows.map(row => {
+          const rawPn = (row[pnIdx] || '').toString();
+          if (!rawPn) return row;
 
-      table.rows.forEach(row => {
-        const rawPn = (row[pnIdx] || '').toString();
-        if (!rawPn) return;
-
-        // 處理多料號
-        const pns = rawPn.split(/[\s,\u3000;\n]+/).map(p => p.trim()).filter(p => p.length > 0);
-        
-        const isOK = confirmColIdx !== -1 && (['OK', 'V', 'TRUE'].includes(row[confirmColIdx]?.toString().toUpperCase().trim()));
-        const rowName = nameIdx !== -1 ? (row[nameIdx]?.toString().trim() || '') : '';
-        const rowCat = catIdx !== -1 ? (row[catIdx]?.toString().trim() || '') : '';
-
-        pns.forEach(pn => {
-          const normPn = normalizeKey(pn);
-          // 在 inventoryData 中尋找匹配的料號 (以原始鍵值比對，但使用 normalization輔助)
-          const actualPnKey = Object.keys(nextInventory).find(k => normalizeKey(k) === normPn);
+          const pns = rawPn.split(/[\s,\u3000;\n]+/).map(p => p.trim()).filter(p => p.length > 0);
           
-          if (actualPnKey) {
-            // 全域同步：更新該料號下「所有」廠區的品名與類別
-            Object.keys(nextInventory[actualPnKey]).forEach(l => {
-              if (rowName && !nextInventory[actualPnKey][l].name) {
-                nextInventory[actualPnKey][l].name = rowName;
-                hasChange = true;
-              }
-              if (rowCat && !nextInventory[actualPnKey][l].category) {
-                nextInventory[actualPnKey][l].category = rowCat;
-                hasChange = true;
-              }
-            });
+          let shouldBeOK = false;
+          let targetQty = '';
 
-            // 尋找匹配當前工作區的廠區 (activePage.name) 以更新確認狀態
-            const locKey = Object.keys(nextInventory[actualPnKey]).find(l => {
-              const k1 = l.toLowerCase().trim();
-              const k2 = activePage.name.toLowerCase().trim();
-              return k1.includes(k2) || k2.includes(k1);
-            });
-
-            if (locKey) {
-              // 更新確認狀態
-              if (confirmColIdx !== -1 && nextInventory[actualPnKey][locKey].confirmed !== isOK) {
-                nextInventory[actualPnKey][locKey].confirmed = isOK;
-                hasChange = true;
+          pns.forEach(pn => {
+            const normPn = normalizeKey(pn);
+            const pnKey = Object.keys(inventoryData).find(k => normalizeKey(k) === normPn);
+            if (pnKey) {
+              const locKey = Object.keys(inventoryData[pnKey]).find(l => {
+                const k1 = l.toLowerCase().trim();
+                const k2 = pageName.toLowerCase().trim();
+                return k1.includes(k2) || k2.includes(k1);
+              });
+              if (locKey) {
+                if (inventoryData[pnKey][locKey].confirmed) {
+                  shouldBeOK = true;
+                }
+                if (inventoryData[pnKey][locKey].newQuantity !== undefined) {
+                  targetQty = inventoryData[pnKey][locKey].newQuantity || '';
+                }
               }
             }
+          });
+
+          let rowChanged = false;
+          const newRow = [...row];
+
+          if (confirmColIdx !== -1) {
+            const currentVal = row[confirmColIdx] || '';
+            const targetVal = shouldBeOK ? 'OK' : '';
+            if (currentVal !== targetVal) {
+              newRow[confirmColIdx] = targetVal;
+              rowChanged = true;
+            }
           }
+
+          if (newQtyColIdx !== -1) {
+            const currentVal = row[newQtyColIdx] || '';
+            if (currentVal !== targetQty) {
+              newRow[newQtyColIdx] = targetQty;
+              rowChanged = true;
+            }
+          }
+
+          if (rowChanged) {
+            tableChanged = true;
+            hasChange = true;
+            return newRow;
+          }
+          return row;
         });
+
+        return tableChanged ? { ...table, rows: newRows } : table;
       });
+
+      return { ...page, tables: newTables };
     });
 
     if (hasChange) {
-      setInventoryData(nextInventory);
+      setPages(nextPages);
     }
-  }, [pages, activePageId]); // 當頁面或表格內容變動時觸發
+  }, [inventoryData]);
+
+  // 清除所有盤點紀錄的函式
+  const clearInventoryChecks = async () => {
+    setIsSyncing(true);
+    try {
+      const { error } = await supabase
+        .from('check storage')
+        .update({ confirmed: false, new_quantity: '' })
+        .neq('id', 0); // 更新所有行
+
+      if (error) throw error;
+      console.log('Successfully cleared all inventory check records in DB.');
+      
+      // 重新整理本地資料庫狀態
+      await fetchDatabaseInventory();
+    } catch (e) {
+      console.error('Failed to clear inventory check records:', e);
+    } finally {
+      setIsSyncing(false);
+    }
+  };
 
   const activePage = useMemo(() => 
     pages.find(p => p.id === activePageId) || null, 
@@ -559,86 +646,73 @@ const App: React.FC = () => {
     link.click();
   };
 
-  const exportInventory = () => {
-    if (!inventoryData || Object.keys(inventoryData).length === 0) return;
-    const escapeCSV = (str: string) => `"${(str || '').toString().replace(/"/g, '""')}"`;
+  const exportInventory = async () => {
+    setIsSyncing(true);
+    try {
+      const { data, error } = await supabase
+        .from('check storage')
+        .select('*')
+        .order('id', { ascending: true });
 
-    // 建立一個從現有表格抓取的 metadata map 作為輔助，補足匯出時可能缺失的品名資訊
-    const tableMetadata: Record<string, { name: string, category: string }> = {};
-    pages.forEach(page => {
-      page.tables.forEach(table => {
-        // 極其寬鬆的欄位偵測邏輯
-        const findColIdx = (targets: string[]) => table.columns.findIndex(c => {
-          if (!c) return false;
-          const cleanCol = c.toString().replace(/[\s\u3000]/g, '').toLowerCase();
-          return targets.some(t => cleanCol.includes(t.toLowerCase()));
-        });
+      if (error) throw error;
 
-        const pnIdx = findColIdx(['料號', 'partno', 'pn', '品號', '編號', '物料編號', 'itemno']);
-        const nameIdx = findColIdx(['品名', '產品名稱', '料號名稱', 'itemname', 'description', '名稱', '規格', '物料名稱']);
-        const catIdx = findColIdx(['產品類別', '類別', 'category', 'type', '分類', '產品種類', '物料類別']);
+      const escapeCSV = (str: string) => `"${(str || '').toString().replace(/"/g, '""')}"`;
+      const headers = ['料號', '品名', '產品類別', '產品位置', '庫存數量', '數量確認', '新數量', '備註'];
+      const csvRows: string[][] = [];
 
-        if (pnIdx !== -1) {
-          table.rows.forEach(row => {
-            const rawPn = (row[pnIdx] || '').toString();
-            if (!rawPn) return;
-            
-            // 處理多料號狀況 (支援空白、逗號、分號、換行)
-            const pns = rawPn.split(/[\s,\u3000;\n]+/).map(p => p.trim()).filter(p => p.length > 0);
-            
-            pns.forEach(pn => {
-              const normPn = normalizeKey(pn);
-              if (!tableMetadata[normPn]) tableMetadata[normPn] = { name: '', category: '' };
-              
-              if (nameIdx !== -1 && row[nameIdx] && !tableMetadata[normPn].name) 
-                tableMetadata[normPn].name = row[nameIdx].toString().trim();
-              if (catIdx !== -1 && row[catIdx] && !tableMetadata[normPn].category) 
-                tableMetadata[normPn].category = row[catIdx].toString().trim();
+      data.forEach(item => {
+        const pn = item.part_number || '';
+        const normPN = normalizeKey(pn);
+        const location = item.stock_type || '';
+        
+        let confirmed = false;
+        let newQty = '';
+        let localRemarks = '';
+
+        if (inventoryData) {
+          const pnKey = Object.keys(inventoryData).find(k => normalizeKey(k) === normPN);
+          if (pnKey) {
+            const locKey = Object.keys(inventoryData[pnKey]).find(l => {
+              const k1 = l.toLowerCase().trim();
+              const k2 = location.toLowerCase().trim();
+              return k1.includes(k2) || k2.includes(k1);
             });
-          });
+            if (locKey) {
+              confirmed = inventoryData[pnKey][locKey].confirmed || false;
+              newQty = inventoryData[pnKey][locKey].newQuantity || '';
+              localRemarks = inventoryData[pnKey][locKey].remarks || '';
+            }
+          }
         }
-      });
-    });
 
-    console.log('Final Scraped Metadata Map:', tableMetadata);
-
-    // 建立 CSV 標題：料號, 品名, 產品類別, 產品位置, 庫存數量, 數量確認, 新數量, 備註
-    const headers = ['料號', '品名', '產品類別', '產品位置', '庫存數量', '數量確認', '新數量', '備註'];
-    const rows: string[][] = [];
-
-    Object.entries(inventoryData).forEach(([partNumber, locMap]) => {
-      const normPN = normalizeKey(partNumber);
-      
-      // 找出該料號下任何一個位置中存有的品名或類別，作為回退 (Fallback)
-      const locEntries = Object.values(locMap);
-      const fallbackName = locEntries.find(d => d.name)?.name || tableMetadata[normPN]?.name || '';
-      const fallbackCategory = locEntries.find(d => d.category)?.category || tableMetadata[normPN]?.category || '';
-
-      Object.entries(locMap).forEach(([location, data]) => {
-        rows.push([
-          partNumber,
-          data.name || fallbackName,
-          data.category || fallbackCategory,
+        csvRows.push([
+          pn,
+          item.product_name || '',
+          item.category || '',
           location,
-          data.quantity.toString(),
-          data.confirmed ? 'V' : '',
-          data.newQuantity || '',
-          data.remarks || ''
+          (item.location_quantity !== null && item.location_quantity !== undefined) ? item.location_quantity.toString() : '0',
+          confirmed ? 'V' : '',
+          newQty,
+          localRemarks || item.remarks || ''
         ]);
       });
-    });
 
-    const csvContent = [
-      headers.map(escapeCSV).join(','),
-      ...rows.map(row => row.map(escapeCSV).join(','))
-    ].join('\n');
+      const csvContent = [
+        headers.map(escapeCSV).join(','),
+        ...csvRows.map(row => row.map(escapeCSV).join(','))
+      ].join('\n');
 
-    const blob = new Blob([`\ufeff${csvContent}`], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `更新後庫存表_${new Date().toLocaleDateString().replace(/\//g, '-')}.csv`;
-    link.click();
+      const blob = new Blob([`\ufeff${csvContent}`], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `更新後庫存表_${new Date().toLocaleDateString().replace(/\//g, '-')}.csv`;
+      link.click();
+    } catch (e) {
+      console.error('Export failed:', e);
+    } finally {
+      setIsSyncing(false);
+    }
   };
 
   const filteredTables = useMemo(() => {
@@ -710,15 +784,20 @@ const App: React.FC = () => {
           <div className="flex items-center gap-2">
             {isEditMode && (
               <>
-                  {inventoryData && Object.keys(inventoryData).length > 0 && (
-                      <button 
-                        onClick={exportInventory} 
-                        title="匯出含核對紀錄的庫存表"
-                        className="bg-black hover:bg-gray-800 text-white px-3 py-2 rounded-lg font-black text-sm border-2 border-black transition-all active:translate-y-0.5"
-                      >
-                        <i className="fas fa-file-export"></i>
-                      </button>
-                    )}
+                  <button 
+                    onClick={exportInventory} 
+                    title="匯出含核對紀錄的庫存表"
+                    className="bg-black hover:bg-gray-800 text-white px-3 py-2 rounded-lg font-black text-sm border-2 border-black transition-all active:translate-y-0.5"
+                  >
+                    <i className="fas fa-file-export"></i>
+                  </button>
+                  <button 
+                    onClick={clearInventoryChecks} 
+                    title="清除所有盤點紀錄"
+                    className="px-4 py-2.5 rounded-lg font-black border-2 border-black bg-red-500 hover:bg-red-600 text-white shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] active:translate-y-0.5 transition-all text-sm"
+                  >
+                    <i className="fas fa-trash-can mr-2"></i>清除盤點
+                  </button>
                 <button onClick={handleImportClick} className="px-4 py-2.5 rounded-lg font-black border-2 border-black bg-white hover:bg-gray-100 transition-all active:translate-y-0.5 text-sm">
                   <i className="fas fa-file-import mr-2"></i>匯入 CSV
                 </button>

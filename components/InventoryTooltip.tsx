@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 
 interface InventoryTooltipProps {
   inventory: Record<string, { quantity: number | string, confirmed: boolean, name?: string, category?: string }>;
-  dbValue?: { p2: number, p3: number };
+  dbValue?: { p2: number, p3: number, name?: string, category?: string };
   activePageName: string;
   children: React.ReactNode;
   onToggleConfirm?: () => void;
@@ -25,8 +25,8 @@ export const InventoryTooltip: React.FC<InventoryTooltipProps> = ({ inventory, d
   const inventoryData = targetInventoryKey ? inventory[targetInventoryKey] : undefined;
   const inventoryValue = inventoryData?.quantity;
   const isConfirmed = inventoryData?.confirmed || false;
-  const productName = inventoryData?.name || '';
-  const category = inventoryData?.category || '';
+  const productName = inventoryData?.name || dbValue?.name || '';
+  const category = inventoryData?.category || dbValue?.category || '';
   const newQuantityValue = inventoryData?.newQuantity || '';
   const originalRemarks = inventoryData?.remarks || '';
 

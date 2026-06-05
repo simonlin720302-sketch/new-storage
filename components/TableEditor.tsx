@@ -11,7 +11,7 @@ interface TableEditorProps {
   onUpdateInventoryNewQuantity?: (partNumber: string, location: string, newQuantity: string) => void;
   isEditMode: boolean;
   inventoryData?: InventoryData;
-  dbInventory?: Record<string, { p2: number, p3: number }>;
+  dbInventory?: Record<string, { p2: number, p3: number, name?: string, category?: string }>;
   activePageName?: string;
   searchQuery?: string;
   isFirstMatch?: boolean;
@@ -25,7 +25,7 @@ const HighlightedText: React.FC<{
   activePageName?: string;
   onToggleInventoryConfirm?: (partNumber: string, location: string) => void;
   onUpdateInventoryNewQuantity?: (partNumber: string, location: string, newQuantity: string) => void;
-  dbInventory?: Record<string, { p2: number, p3: number }>;
+  dbInventory?: Record<string, { p2: number, p3: number, name?: string, category?: string }>;
   disabled?: boolean;
 }> = ({ text, query, inventoryData, activePageName, onToggleInventoryConfirm, onUpdateInventoryNewQuantity, dbInventory, disabled }) => {
   const normalizeKey = (key: any) => (key || '').toString().replace(/[\s\u3000]/g, '').toUpperCase();
@@ -145,7 +145,7 @@ const AutoHeightTextarea: React.FC<{
   disableInventory?: boolean;
   onToggleInventoryConfirm?: (partNumber: string, location: string) => void;
   onUpdateInventoryNewQuantity?: (partNumber: string, location: string, newQuantity: string) => void;
-  dbInventory?: Record<string, { p2: number, p3: number }>;
+  dbInventory?: Record<string, { p2: number, p3: number, name?: string, category?: string }>;
 }> = ({ value, onChange, className, placeholder, textAlign = 'left', searchQuery = '', readOnly = false, inventoryData, activePageName, disableInventory = false, onToggleInventoryConfirm, onUpdateInventoryNewQuantity, dbInventory }) => {
   const [isFocused, setIsFocused] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
