@@ -285,15 +285,19 @@ export const TableEditor: React.FC<TableEditorProps> = ({
 
   const updateCell = (rowIndex: number, colIndex: number, value: string) => {
     if (!isEditMode) return;
-    const newRows = [...table.rows];
-    newRows[rowIndex][colIndex] = value;
+    const newRows = table.rows.map((row, rIdx) => 
+      rIdx === rowIndex 
+        ? row.map((cell, cIdx) => cIdx === colIndex ? value : cell)
+        : row
+    );
     onUpdate({ ...table, rows: newRows });
   };
 
   const updateHeader = (colIndex: number, value: string) => {
     if (!isEditMode) return;
-    const newColumns = [...table.columns];
-    newColumns[colIndex] = value;
+    const newColumns = table.columns.map((col, cIdx) => 
+      cIdx === colIndex ? value : col
+    );
     onUpdate({ ...table, columns: newColumns });
   };
 

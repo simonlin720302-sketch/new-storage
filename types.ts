@@ -10,6 +10,7 @@ export interface PageData {
   id: string;
   name: string;
   tables: TableData[];
+  factoryType?: 'P2' | 'P3';
 }
 
 export interface InventoryItem {

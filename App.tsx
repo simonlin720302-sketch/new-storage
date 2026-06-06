@@ -27,6 +27,13 @@ const App: React.FC = () => {
   const [inventoryData, setInventoryData] = useState<InventoryData>({});
   const [dbInventory, setDbInventory] = useState<Record<string, { p2: number, p3: number, name?: string, category?: string }>>({});
   const [isSyncing, setIsSyncing] = useState(false);
+  const [isLoadingLayout, setIsLoadingLayout] = useState<'P2' | 'P3' | null>(null);
+  const [isSavingLayout, setIsSavingLayout] = useState(false);
+  const [showSaveConfirm, setShowSaveConfirm] = useState(false);
+  const [saveProgress, setSaveProgress] = useState<{
+    step: 'idle' | 'deleting' | 'inserting' | 'verifying' | 'success' | 'error';
+    message: string;
+  }>({ step: 'idle', message: '' });
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const fetchDatabaseInventory = async () => {
@@ -303,92 +310,92 @@ const App: React.FC = () => {
 
   // 監聽 inventoryData 變動，同步回填所有表格內對應的「數量確認」與「新數量（盤點數量）」欄位
   useEffect(() => {
-    if (pages.length === 0) return;
-    
-    let hasChange = false;
-    const nextPages = pages.map(page => {
-      const pageName = page.name;
-      const newTables = page.tables.map(table => {
-        const findColIdx = (targets: string[]) => table.columns.findIndex(c => {
-          if (!c) return false;
-          const cleanCol = c.toString().replace(/[\s\u3000]/g, '').toLowerCase();
-          return targets.some(t => cleanCol.includes(t.toLowerCase()));
-        });
-
-        const confirmColIdx = findColIdx(['數量確認', '核對', '確認', 'check']);
-        const newQtyColIdx = findColIdx(['新數量', '盤點數量', '實盤數量']);
-        const pnIdx = findColIdx(['料號', 'partno', 'pn', '品號', '編號', '物料編號', 'itemno']);
-
-        if (confirmColIdx === -1 && newQtyColIdx === -1) return table;
-        if (pnIdx === -1) return table;
-
-        let tableChanged = false;
-        const newRows = table.rows.map(row => {
-          const rawPn = (row[pnIdx] || '').toString();
-          if (!rawPn) return row;
-
-          const pns = rawPn.split(/[\s,\u3000;\n]+/).map(p => p.trim()).filter(p => p.length > 0);
-          
-          let shouldBeOK = false;
-          let targetQty = '';
-
-          pns.forEach(pn => {
-            const normPn = normalizeKey(pn);
-            const pnKey = Object.keys(inventoryData).find(k => normalizeKey(k) === normPn);
-            if (pnKey) {
-              const locKey = Object.keys(inventoryData[pnKey]).find(l => {
-                const k1 = l.toLowerCase().trim();
-                const k2 = pageName.toLowerCase().trim();
-                return k1.includes(k2) || k2.includes(k1);
-              });
-              if (locKey) {
-                if (inventoryData[pnKey][locKey].confirmed) {
-                  shouldBeOK = true;
-                }
-                if (inventoryData[pnKey][locKey].newQuantity !== undefined) {
-                  targetQty = inventoryData[pnKey][locKey].newQuantity || '';
-                }
-              }
-            }
+    setPages(currentPages => {
+      if (currentPages.length === 0) return currentPages;
+      
+      let hasChange = false;
+      const nextPages = currentPages.map(page => {
+        const pageName = page.name;
+        const newTables = page.tables.map(table => {
+          const findColIdx = (targets: string[]) => table.columns.findIndex(c => {
+            if (!c) return false;
+            const cleanCol = c.toString().replace(/[\s\u3000]/g, '').toLowerCase();
+            return targets.some(t => cleanCol.includes(t.toLowerCase()));
           });
 
-          let rowChanged = false;
-          const newRow = [...row];
+          const confirmColIdx = findColIdx(['數量確認', '核對', '確認', 'check']);
+          const newQtyColIdx = findColIdx(['新數量', '盤點數量', '實盤數量']);
+          const pnIdx = findColIdx(['料號', 'partno', 'pn', '品號', '編號', '物料編號', 'itemno']);
 
-          if (confirmColIdx !== -1) {
-            const currentVal = row[confirmColIdx] || '';
-            const targetVal = shouldBeOK ? 'OK' : '';
-            if (currentVal !== targetVal) {
-              newRow[confirmColIdx] = targetVal;
-              rowChanged = true;
+          if (confirmColIdx === -1 && newQtyColIdx === -1) return table;
+          if (pnIdx === -1) return table;
+
+          let tableChanged = false;
+          const newRows = table.rows.map(row => {
+            const rawPn = (row[pnIdx] || '').toString();
+            if (!rawPn) return row;
+
+            const pns = rawPn.split(/[\s,\u3000;\n]+/).map(p => p.trim()).filter(p => p.length > 0);
+            
+            let shouldBeOK = false;
+            let targetQty = '';
+
+            pns.forEach(pn => {
+              const normPn = normalizeKey(pn);
+              const pnKey = Object.keys(inventoryData).find(k => normalizeKey(k) === normPn);
+              if (pnKey) {
+                const locKey = Object.keys(inventoryData[pnKey]).find(l => {
+                  const k1 = l.toLowerCase().trim();
+                  const k2 = pageName.toLowerCase().trim();
+                  return k1.includes(k2) || k2.includes(k1);
+                });
+                if (locKey) {
+                  if (inventoryData[pnKey][locKey].confirmed) {
+                    shouldBeOK = true;
+                  }
+                  if (inventoryData[pnKey][locKey].newQuantity !== undefined) {
+                    targetQty = inventoryData[pnKey][locKey].newQuantity || '';
+                  }
+                }
+              }
+            });
+
+            let rowChanged = false;
+            const newRow = [...row];
+
+            if (confirmColIdx !== -1) {
+              const currentVal = row[confirmColIdx] || '';
+              const targetVal = shouldBeOK ? 'OK' : '';
+              if (currentVal !== targetVal) {
+                newRow[confirmColIdx] = targetVal;
+                rowChanged = true;
+              }
             }
-          }
 
-          if (newQtyColIdx !== -1) {
-            const currentVal = row[newQtyColIdx] || '';
-            if (currentVal !== targetQty) {
-              newRow[newQtyColIdx] = targetQty;
-              rowChanged = true;
+            if (newQtyColIdx !== -1) {
+              const currentVal = row[newQtyColIdx] || '';
+              if (currentVal !== targetQty) {
+                newRow[newQtyColIdx] = targetQty;
+                rowChanged = true;
+              }
             }
-          }
 
-          if (rowChanged) {
-            tableChanged = true;
-            hasChange = true;
-            return newRow;
-          }
-          return row;
+            if (rowChanged) {
+              tableChanged = true;
+              hasChange = true;
+              return newRow;
+            }
+            return row;
+          });
+
+          return tableChanged ? { ...table, rows: newRows } : table;
         });
 
-        return tableChanged ? { ...table, rows: newRows } : table;
+        return { ...page, tables: newTables };
       });
 
-      return { ...page, tables: newTables };
+      return hasChange ? nextPages : currentPages;
     });
-
-    if (hasChange) {
-      setPages(nextPages);
-    }
   }, [inventoryData]);
 
   // 清除所有盤點紀錄的函式
@@ -409,6 +416,169 @@ const App: React.FC = () => {
       console.error('Failed to clear inventory check records:', e);
     } finally {
       setIsSyncing(false);
+    }
+  };
+
+  const loadFactoryLayout = async (factory: 'P2' | 'P3') => {
+    if (!activePageId) return;
+    setIsLoadingLayout(factory);
+    try {
+      const tableName = factory === 'P2' ? 'P2 position' : 'P3 position';
+      const { data, error } = await supabase
+        .from(tableName)
+        .select('*')
+        .order('table_name', { ascending: true })
+        .order('row_index', { ascending: true });
+
+      if (error) throw error;
+      if (!data || data.length === 0) {
+        alert(`找不到 ${factory} 廠區的版面資料，請確認資料庫已匯入。`);
+        return;
+      }
+
+      // Group rows by table_name
+      const tableMap = new Map<string, Record<string, any>[]>();
+      const tableOrder: string[] = [];
+      data.forEach((row: any) => {
+        if (!tableMap.has(row.table_name)) {
+          tableMap.set(row.table_name, []);
+          tableOrder.push(row.table_name);
+        }
+        tableMap.get(row.table_name)!.push(row);
+      });
+
+      // Build TableData structures
+      const colKeys = ['col0', 'col1', 'col2', 'col3', 'col4', 'col5', 'col6', 'col7', 'col8', 'col9'];
+      const newTables: TableData[] = tableOrder.map(tableName => {
+        const rows = tableMap.get(tableName)!;
+
+        // Find max number of columns across all rows
+        let maxCols = 1;
+        rows.forEach(row => {
+          colKeys.forEach((key, idx) => {
+            if (row[key] !== null && row[key] !== undefined) {
+              maxCols = Math.max(maxCols, idx + 1);
+            }
+          });
+        });
+
+        // First row is the header row
+        const headerRow = rows[0];
+        const columns = colKeys.slice(0, maxCols).map(key => headerRow[key] || '');
+
+        // Remaining rows are data rows
+        const dataRows = rows.slice(1).map(row =>
+          colKeys.slice(0, maxCols).map(key => row[key] || '')
+        );
+
+        return {
+          id: generateId(),
+          title: tableName,
+          columns,
+          rows: dataRows.length > 0 ? dataRows : [new Array(columns.length).fill('')],
+        };
+      });
+
+      // Replace the active page's tables with the loaded layout, and mark factoryType + rename page
+      setPages(prev => prev.map(p =>
+        p.id === activePageId
+          ? { ...p, name: factory, tables: newTables, factoryType: factory }
+          : p
+      ));
+      setSearchQuery('');
+      alert(`已成功載入 ${factory} 廠區的 ${newTables.length} 個表格！`);
+    } catch (e: any) {
+      console.error('Failed to load factory layout:', e);
+      alert(`載入失敗：${e.message}`);
+    } finally {
+      setIsLoadingLayout(null);
+    }
+  };
+
+  const startSaveFactoryLayout = () => {
+    if (!activePage || !activePage.factoryType) return;
+    setSaveProgress({ step: 'idle', message: '' });
+    setShowSaveConfirm(true);
+  };
+
+  const executeSaveFactoryLayout = async () => {
+    if (!activePage || !activePage.factoryType) return;
+    const factory = activePage.factoryType;
+    const tablesToSave = activePage.tables;
+    const dbTableName = factory === 'P2' ? 'P2 position' : 'P3 position';
+    const colKeys = ['col0', 'col1', 'col2', 'col3', 'col4', 'col5', 'col6', 'col7', 'col8', 'col9'];
+
+    setSaveProgress({ step: 'deleting', message: '正在清除舊的配置資料...' });
+    setIsSavingLayout(true);
+
+    try {
+      // 1. Delete all existing rows
+      const { error: deleteError } = await supabase
+        .from(dbTableName)
+        .delete()
+        .neq('id', 0);
+      if (deleteError) throw new Error(`刪除舊資料失敗：${deleteError.message}`);
+
+      // 2. Verify deletion
+      const { count: afterDeleteCount, error: countErr } = await supabase
+        .from(dbTableName)
+        .select('*', { count: 'exact', head: true });
+      if (!countErr && afterDeleteCount !== 0) {
+        throw new Error(`清除失敗，資料庫仍有 ${afterDeleteCount} 筆資料。請確認資料庫權限。`);
+      }
+
+      setSaveProgress({ step: 'inserting', message: '正在寫入新的表格配置中...' });
+
+      // 3. Convert snapshotted tables to DB rows
+      const dbRows: Record<string, any>[] = [];
+      tablesToSave.forEach(table => {
+        const headerRow: Record<string, any> = { table_name: table.title, row_index: 0 };
+        table.columns.forEach((col, idx) => {
+          if (idx < colKeys.length) headerRow[colKeys[idx]] = col || null;
+        });
+        dbRows.push(headerRow);
+
+        table.rows.forEach((row, rowIdx) => {
+          const dataRow: Record<string, any> = { table_name: table.title, row_index: rowIdx + 1 };
+          row.forEach((cell, idx) => {
+            if (idx < colKeys.length) dataRow[colKeys[idx]] = cell || null;
+          });
+          dbRows.push(dataRow);
+        });
+      });
+
+      // 4. Batch insert
+      const batchSize = 50;
+      for (let i = 0; i < dbRows.length; i += batchSize) {
+        const chunk = dbRows.slice(i, i + batchSize);
+        const { error: insertError } = await supabase
+          .from(dbTableName)
+          .insert(chunk);
+        if (insertError) throw new Error(`寫入失敗（第 ${i + 1} 批）：${insertError.message}`);
+      }
+
+      setSaveProgress({ step: 'verifying', message: '正在驗證寫入的資料筆數...' });
+
+      // 5. Post-save verification
+      const { count: finalCount, error: finalErr } = await supabase
+        .from(dbTableName)
+        .select('*', { count: 'exact', head: true });
+
+      if (finalErr) {
+        throw new Error(`資料已寫入，但進行二次驗證時發生錯誤：${finalErr.message}`);
+      } else if (finalCount !== dbRows.length) {
+        throw new Error(`寫入筆數不符！預計寫入 ${dbRows.length} 筆，資料庫實際僅存有 ${finalCount} 筆。`);
+      }
+
+      setSaveProgress({
+        step: 'success',
+        message: `儲存成功！共 ${tablesToSave.length} 個表格、${finalCount} 筆記錄已寫入「${factory} 廠區位置」資料庫。`
+      });
+    } catch (e: any) {
+      console.error('Failed to save factory layout:', e);
+      setSaveProgress({ step: 'error', message: e.message || '未知錯誤' });
+    } finally {
+      setIsSavingLayout(false);
     }
   };
 
@@ -798,6 +968,55 @@ const App: React.FC = () => {
                   >
                     <i className="fas fa-trash-can mr-2"></i>清除盤點
                   </button>
+
+                  <div className="h-6 w-[2px] bg-black/20"></div>
+
+                  <button
+                    onClick={() => loadFactoryLayout('P2')}
+                    disabled={isLoadingLayout !== null}
+                    title="從資料庫載入 P2 廠區位置格式"
+                    className={`flex items-center gap-1.5 px-4 py-2.5 rounded-lg font-black border-2 border-black shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] active:translate-y-0.5 transition-all text-sm
+                      ${isLoadingLayout === 'P2' ? 'bg-amber-200 cursor-wait' : 'bg-amber-400 hover:bg-amber-500 text-black'}`}
+                  >
+                    {isLoadingLayout === 'P2' 
+                      ? <><i className="fas fa-spinner animate-spin"></i> 載入中...</>
+                      : <><i className="fas fa-building"></i> 載入 P2</>
+                    }
+                  </button>
+
+                  <button
+                    onClick={() => loadFactoryLayout('P3')}
+                    disabled={isLoadingLayout !== null}
+                    title="從資料庫載入 P3 廠區位置格式"
+                    className={`flex items-center gap-1.5 px-4 py-2.5 rounded-lg font-black border-2 border-black shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] active:translate-y-0.5 transition-all text-sm
+                      ${isLoadingLayout === 'P3' ? 'bg-violet-200 cursor-wait' : 'bg-violet-400 hover:bg-violet-500 text-white'}`}
+                  >
+                    {isLoadingLayout === 'P3'
+                      ? <><i className="fas fa-spinner animate-spin"></i> 載入中...</>
+                      : <><i className="fas fa-building"></i> 載入 P3</>
+                    }
+                  </button>
+
+                  <div className="h-6 w-[2px] bg-black/20"></div>
+
+                  {/* Save button - only shows when active page was loaded from a factory layout */}
+                  {activePage?.factoryType && (
+                    <button
+                      onClick={startSaveFactoryLayout}
+                      disabled={isSavingLayout || isLoadingLayout !== null}
+                      title={`將目前頁面的表格儲存回「${activePage.factoryType} 廠區位置」資料庫`}
+                      className={`flex items-center gap-1.5 px-4 py-2.5 rounded-lg font-black border-2 border-black shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] active:translate-y-0.5 transition-all text-sm
+                        ${isSavingLayout ? 'bg-emerald-200 cursor-wait text-emerald-700' : 'bg-emerald-500 hover:bg-emerald-600 text-white'}`}
+                    >
+                      {isSavingLayout
+                        ? <><i className="fas fa-spinner animate-spin"></i> 儲存中...</>
+                        : <><i className="fas fa-cloud-arrow-up"></i>&nbsp;儲存至 {activePage.factoryType}</>
+                      }
+                    </button>
+                  )}
+
+                  <div className="h-6 w-[2px] bg-black/20"></div>
+
                 <button onClick={handleImportClick} className="px-4 py-2.5 rounded-lg font-black border-2 border-black bg-white hover:bg-gray-100 transition-all active:translate-y-0.5 text-sm">
                   <i className="fas fa-file-import mr-2"></i>匯入 CSV
                 </button>
@@ -890,6 +1109,109 @@ const App: React.FC = () => {
           </div>
         )}
       </main>
+
+      {/* Custom Neobrutalist Save Confirmation Modal */}
+      {showSaveConfirm && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[9999] flex items-center justify-center p-4">
+          <div className="bg-white border-4 border-black rounded-3xl p-8 max-w-md w-full shadow-[8px_8px_0px_0px_rgba(0,0,0,1)] animate-in fade-in zoom-in-95 duration-150 text-black">
+            <div className="flex items-center gap-3 mb-6">
+              <div className="w-12 h-12 bg-yellow-400 border-2 border-black rounded-xl flex items-center justify-center text-black shadow-[3px_3px_0px_0px_rgba(0,0,0,1)]">
+                <i className={`fas ${saveProgress.step === 'success' ? 'fa-circle-check text-green-600' : saveProgress.step === 'error' ? 'fa-circle-xmark text-red-600' : 'fa-triangle-exclamation'} text-2xl`}></i>
+              </div>
+              <div>
+                <h3 className="text-xl font-black italic uppercase">
+                  {saveProgress.step === 'success' ? '儲存成功' : saveProgress.step === 'error' ? '儲存失敗' : '確定要覆蓋儲存嗎？'}
+                </h3>
+                <p className="text-[10px] font-black bg-black text-white px-1.5 py-0.5 w-fit mt-1">資料庫同步</p>
+              </div>
+            </div>
+
+            {saveProgress.step === 'idle' && (
+              <>
+                <p className="text-sm font-bold text-gray-700 mb-6 leading-relaxed">
+                  這將會刪除資料庫中現有的 <strong className="text-black bg-yellow-100 px-1 font-black">「{activePage?.factoryType} 廠區位置」</strong> 配置資料，並以目前頁面的 <strong className="text-black bg-yellow-100 px-1 font-black">{activePage?.tables.length} 個表格</strong> 進行覆蓋儲存。此操作不可復原。
+                </p>
+                <div className="bg-gray-50 border-2 border-black rounded-2xl p-4 mb-6 max-h-40 overflow-y-auto custom-scrollbar">
+                  <span className="text-[9px] font-black text-gray-400 uppercase block mb-2">準備儲存的表格：</span>
+                  <ul className="space-y-1">
+                    {activePage?.tables.map((t) => (
+                      <li key={t.id} className="text-xs font-black flex items-center gap-2">
+                        <span className="text-yellow-500">•</span> {t.title}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+                <div className="flex justify-end gap-3">
+                  <button
+                    onClick={() => setShowSaveConfirm(false)}
+                    className="px-5 py-2.5 border-2 border-black rounded-xl font-black bg-white hover:bg-gray-100 active:translate-y-0.5 shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] transition-all text-sm"
+                  >
+                    取消
+                  </button>
+                  <button
+                    onClick={executeSaveFactoryLayout}
+                    className="px-5 py-2.5 border-2 border-black rounded-xl font-black bg-emerald-500 text-white hover:bg-emerald-600 active:translate-y-0.5 shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] transition-all text-sm"
+                  >
+                    確認儲存
+                  </button>
+                </div>
+              </>
+            )}
+
+            {(saveProgress.step === 'deleting' || saveProgress.step === 'inserting' || saveProgress.step === 'verifying') && (
+              <div className="text-center py-8">
+                <div className="inline-block animate-spin w-10 h-10 border-4 border-black border-t-transparent rounded-full mb-4"></div>
+                <p className="font-black text-sm text-black">{saveProgress.message}</p>
+              </div>
+            )}
+
+            {saveProgress.step === 'success' && (
+              <>
+                <p className="text-sm font-bold text-gray-700 mb-6 leading-relaxed">
+                  {saveProgress.message}
+                </p>
+                <div className="flex justify-end">
+                  <button
+                    onClick={() => {
+                      setShowSaveConfirm(false);
+                      setSaveProgress({ step: 'idle', message: '' });
+                    }}
+                    className="px-6 py-2.5 border-2 border-black rounded-xl font-black bg-black text-white hover:bg-gray-800 active:translate-y-0.5 shadow-[3px_3px_0px_0px_rgba(0,0,0,0.2)] transition-all text-sm"
+                  >
+                    關閉
+                  </button>
+                </div>
+              </>
+            )}
+
+            {saveProgress.step === 'error' && (
+              <>
+                <div className="bg-red-50 border-2 border-red-500 rounded-2xl p-4 mb-6">
+                  <span className="text-[9px] font-black text-red-500 uppercase block mb-1">錯誤原因：</span>
+                  <p className="text-xs font-black text-red-700 leading-relaxed">{saveProgress.message}</p>
+                </div>
+                <div className="flex justify-end gap-3">
+                  <button
+                    onClick={() => {
+                      setShowSaveConfirm(false);
+                      setSaveProgress({ step: 'idle', message: '' });
+                    }}
+                    className="px-5 py-2.5 border-2 border-black rounded-xl font-black bg-white hover:bg-gray-100 active:translate-y-0.5 shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] transition-all text-sm"
+                  >
+                    關閉
+                  </button>
+                  <button
+                    onClick={executeSaveFactoryLayout}
+                    className="px-5 py-2.5 border-2 border-black rounded-xl font-black bg-yellow-400 text-black hover:bg-yellow-500 active:translate-y-0.5 shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] transition-all text-sm"
+                  >
+                    重試
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 };
